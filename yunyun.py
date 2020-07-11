@@ -579,10 +579,10 @@ class Shelve(MutableMapping):
         
     def __getitem__(self, key):
         with self.mapping.lock:
+            key = self._hash_key(pickle.dumps(key))
             if not self.mapping.nodeExists(key):
                 raise KeyError(key)
             
-            key = self._hash_key(pickle.dumps(key))
             return pickle.loads(self.mapping.getHandle(key).read())
         
     def __delitem__(self, key):
