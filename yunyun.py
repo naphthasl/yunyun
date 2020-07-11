@@ -29,6 +29,9 @@ class Exceptions(object):
         
     class TargetExists(Exception):
         pass
+        
+    class InvalidFormat(Exception):
+        pass
 
 class Interface(object):
     _index_header_pattern = '<?IHH' # 9 bytes
@@ -520,6 +523,12 @@ class MultiblockHandler(Interface):
 class Shelve(MutableMapping):
     def __init__(self, *args, **kwargs):
         self.mapping = MultiblockHandler(*args, **kwargs)
+        
+        if self.mapping._block_size < 96:
+            raise Exceptions.InvalidFormat(
+                'Shelve mapping block size must be at least 96 bytes.'
+            )
+        
         self._key_node_name = self._hash_key(b'__KEYS__')
         
         with self.mapping.lock:
