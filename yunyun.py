@@ -16,6 +16,9 @@ from filelock import Timeout, FileLock, SoftFileLock
 class Exceptions(object):
     class BlockNotFound(Exception):
         pass
+        
+    class WriteAboveBlockSize(Exception):
+        pass
 
 class Interface(object):
     _index_header_pattern = '<?IHH' # 9 bytes
@@ -160,6 +163,14 @@ class Interface(object):
                 self.createIndex()
                 
     def writeBlock(self, key: bytes, value: bytes, hard: bool = False):
+        if len(value) > self._block_size:
+            raise Exceptions.WriteAboveBlockSize(
+                'Write length was {0}, block size is {1}'.format(
+                    len(value),
+                    self._block_size
+                )
+            )
+        
         with self.lock:
             with open(self.path, 'rb+') as f:
                 key_exists = self.keyExists(key)
