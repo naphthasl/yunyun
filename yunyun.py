@@ -621,8 +621,9 @@ class Shelve(MutableMapping):
             
             handle = self.mapping.getHandle(key)
             
-            handle.truncate(0)
-            handle.write(pickle.dumps(value))
+            pickval = pickle.dumps(value)
+            handle.truncate(len(pickval))
+            handle.write(pickval)
         
     def __iter__(self):
         with self.mapping.lock:
