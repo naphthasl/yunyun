@@ -9,7 +9,7 @@ __author__ = 'Naphtha Nepanthez'
 __version__ = '0.0.1'
 __license__ = 'MIT' # SEE LICENSE FILE
 
-import os, struct, xxhash
+import os, struct, xxhash, pickle, hashlib, io, math
 
 from filelock import Timeout, FileLock, SoftFileLock
 
@@ -18,6 +18,12 @@ class Exceptions(object):
         pass
         
     class WriteAboveBlockSize(Exception):
+        pass
+        
+    class NodeExists(Exception):
+        pass
+        
+    class NodeDoesNotExist(Exception):
         pass
 
 class Interface(object):
@@ -247,27 +253,236 @@ class Interface(object):
                         key.hex()
                     ))
 
+class MultiblockHandler(Interface):
+    def constructNodeBlockKey(self, key: bytes, block: int):
+        return b'INODEBLK' + hashlib.sha256(
+            key + struct.pack('<I', block)
+        ).digest()
+    
+    def makeNode(self, key: bytes):
+        with self.lock:
+            if not self.nodeExists(key):
+                self._setNodeProperties(key,
+                    {
+                        'key': key,
+                        'blocks': 0,
+                        'size': 0
+                    }
+                )
+            else:
+                raise Exceptions.NodeExists('!MKNOD Key: {0}'.format(
+                    key.hex()
+                ))
+        
+    def removeNode(self, key: bytes):
+        with self.lock:
+            if not self.nodeExists(key):
+                raise Exceptions.NodeDoesNotExist('!RMNOD Key: {0}'.format(
+                    key.hex()
+                ))
+            
+            details = self._getNodeProperties(key)
+            self.discardBlock(key)
+        
+            for block in range(details['blocks']):
+                self.discardBlock(self.constructNodeBlockKey(key, block))
+                
+    def nodeExists(self, key: bytes) -> bool:
+        with self.lock:
+            return bool(self.keyExists(key))
+        
+    def getHandle(self, key: bytes):
+        with self.lock:
+            if self.nodeExists(key):
+                return self.MultiblockFileHandle(self, key)
+            else:
+                raise Exceptions.NodeDoesNotExist('!GTHDL Key: {0}'.format(
+                    key.hex()
+                ))
+        
+    def _getNodeProperties(self, key: bytes) -> dict:
+        return pickle.loads(self.readBlock(key))
+    
+    def _setNodeProperties(self, key: bytes, properties: dict):
+        self.writeBlock(key, pickle.dumps(properties))
+
+    class MultiblockFileHandle(object):
+        def __init__(self, interface, key: bytes):
+            self.interface = interface
+            self.key = key
+            self.position = 0
+            
+        def close(self):
+            pass
+            
+        def tell(self) -> int:
+            with self.interface.lock:
+                return self.position
+            
+        def seek(self, offset: int, whence: int = 0) -> int:
+            with self.interface.lock:
+                if whence == 0:
+                    self.position = offset
+                elif whence == 1:
+                    self.position += offset
+                elif whence == 2:
+                    if offset != 0:
+                        raise io.UnsupportedOperation(
+                            'can\'t do nonzero end-relative seeks'
+                        )
+                    
+                    self.position = self.length()
+                    
+                return self.position
+                
+        def length(self):
+            with self.interface.lock:
+                return self.interface._getNodeProperties(
+                    self.key
+                )['size']
+            
+        def truncate(self, size: int = None) -> int:
+            with self.interface.lock:
+                current_size = self.length()
+                
+                if size == None:
+                    size = current_size
+                    
+                final_blocks = math.ceil(
+                    size / self.interface._block_size
+                )
+                
+                current_blocks = math.ceil(
+                    current_size / self.interface._block_size
+                )
+                
+                if final_blocks > current_blocks:
+                    for block in range(final_blocks):
+                        key = self.interface.constructNodeBlockKey(
+                            self.key, block
+                        )
+                        
+                        if not self.interface.keyExists(key):
+                            self.interface.writeBlock(
+                                key,
+                                b'\x00' * self.interface._block_size
+                            )
+                elif final_blocks < current_blocks:
+                    for block in range(final_blocks, current_blocks):
+                        key = self.interface.constructNodeBlockKey(
+                            self.key, block
+                        )
+                        
+                        self.interface.discardBlock(key)
+                        
+                props = self.interface._getNodeProperties(
+                    self.key
+                )
+                
+                props['size'] = size
+                
+                self.interface._setNodeProperties(
+                    self.key,
+                    props
+                )
+                
+        def read(self, size: int = None) -> bytes:
+            with self.interface.lock:
+                if size == None:
+                    size = self.length() - self.position
+                    
+                final = self._readrange(self.position, self.position + size)
+                self.position += size
+                    
+                return final
+            
+        def _readrange(self, start: int, end: int, pad: bool = True) -> bytes:
+            with self.interface.lock:
+                start_block = math.floor(
+                    start / self.interface._block_size
+                )
+                
+                end_block = math.ceil(
+                    end / self.interface._block_size
+                )
+                
+                blocks = []
+                for block in range(start_block, end_block):
+                    key = self.interface.constructNodeBlockKey(
+                        self.key, block
+                    )
+                    
+                    blocks.append(self.interface.readBlock(key))
+                    
+                final = b''.join(blocks)
+                    
+                if pad:
+                    clean_start = start - (
+                        start_block * self.interface._block_size
+                    )
+                    clean_end = clean_start + (end - start)
+                    
+                    return final[
+                        (
+                            clean_start
+                        ):(
+                            clean_end
+                        )
+                    ]
+                else:
+                    return final
+                
+        def write(self, b: bytes):
+            with self.interface.lock:
+                if self.length() < self.position + len(b):
+                    self.truncate(self.position + len(b))
+                    
+                start_block = math.floor(
+                    self.position / self.interface._block_size
+                )
+                
+                end_block = math.ceil(
+                    (self.position + len(b)) / self.interface._block_size
+                )
+                    
+                chunk_buffer = bytearray(self._readrange(
+                    self.position,
+                    self.position + len(b),
+                    pad = False
+                ))
+                
+                clean_start = self.position - (
+                    start_block * self.interface._block_size
+                )
+                
+                chunk_buffer[
+                    (
+                        clean_start
+                    ):(
+                        clean_start + len(b)
+                    )
+                ] = b
+                
+                ipos = 0
+                for block in range(start_block, end_block):
+                    key = self.interface.constructNodeBlockKey(
+                        self.key, block
+                    )
+                    
+                    self.interface.writeBlock(
+                        key,
+                        bytes(
+                            chunk_buffer[ipos:ipos+self.interface._block_size]
+                        )
+                    )
+                    
+                    ipos += self.interface._block_size
+                    
+                self.position += len(b)
+
 if __name__ == '__main__':
-    x = Interface('test.yun')
+    import code
     
-    print(x.getIndexes())
-    print(x.keyExists(b''))
+    x = MultiblockHandler('test.yun')
     
-    key = b'stuff'
-    content = b'helloworld'
-    
-    x.writeBlock(key, content)
-    print(x.readBlock(key))
-    x.discardBlock(key)
-    
-    try:
-        print(x.readBlock(key))
-    except Exception as e:
-        print(e)
-    
-    try:
-        x.discardBlock(key)
-    except Exception as e:
-        print(e)
-    
-    x.writeBlock(key, content)
+    code.interact(local=dict(globals(), **locals()))
