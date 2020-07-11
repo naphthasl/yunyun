@@ -134,3 +134,4 @@ dmypy.json
 *.yydb
 *.ydb
 *.yun
+*.lock
