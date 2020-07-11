@@ -399,13 +399,9 @@ class MultiblockHandler(Interface):
             
         def _readrange(self, start: int, end: int, pad: bool = True) -> bytes:
             with self.interface.lock:
-                start_block = math.floor(
-                    start / self.interface._block_size
-                )
+                start_block = math.floor(start / self.interface._block_size)
                 
-                end_block = math.ceil(
-                    end / self.interface._block_size
-                )
+                end_block = math.ceil(end / self.interface._block_size)
                 
                 blocks = []
                 for block in range(start_block, end_block):
@@ -423,13 +419,7 @@ class MultiblockHandler(Interface):
                     )
                     clean_end = clean_start + (end - start)
                     
-                    return final[
-                        (
-                            clean_start
-                        ):(
-                            clean_end
-                        )
-                    ]
+                    return final[(clean_start):(clean_end)]
                 else:
                     return final
                 
@@ -456,13 +446,7 @@ class MultiblockHandler(Interface):
                     start_block * self.interface._block_size
                 )
                 
-                chunk_buffer[
-                    (
-                        clean_start
-                    ):(
-                        clean_start + len(b)
-                    )
-                ] = b
+                chunk_buffer[(clean_start):(clean_start + len(b))] = b
                 
                 ipos = 0
                 for block in range(start_block, end_block):
