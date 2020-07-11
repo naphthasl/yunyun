@@ -133,8 +133,9 @@ class Interface(object):
               
     def keyExists(self, key: bytes):
         with self.lock:
+            hkey = xxhash.xxh64(key).intdigest()
             for k, v in self.getIndexesCells().items():
-                if (v[1] == xxhash.xxh64(key).intdigest()
+                if (v[1] == hkey
                     and v[0] == True):
                         
                     return k
