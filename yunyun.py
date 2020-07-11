@@ -555,7 +555,8 @@ class Shelve(MutableMapping):
         with self.mapping.lock:
             self._ikeys.seek(0)
             kr = pickle.loads(self._ikeys.read())
-            kr.append(key)
+            if key not in kr:
+                kr.append(key)
             self._ikeys.seek(0)
             self._ikeys.truncate(0)
             self._ikeys.write(pickle.dumps(kr))
