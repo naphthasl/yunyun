@@ -34,8 +34,8 @@ class Exceptions(object):
         pass
 
 class Interface(object):
-    _index_header_pattern = '<?IHH' # 9 bytes
-    _index_cell_pattern   = '<?QIH' # 14 bytes
+    _index_header_pattern = '<?IHH'  # 9  bytes
+    _index_cell_pattern   = '<?QIHQ' # 22 bytes
     
     def __init__(self, path, index_size = 4096, block_size = 4096):
         if block_size < 16:
@@ -82,7 +82,8 @@ class Interface(object):
         occupied: bool = False,
         key: bytes = b'',
         seek: int = 0,
-        size: int = 0
+        size: int = 0,
+        data: int = 0
     ) -> bytes:
             
         return struct.pack(
@@ -90,7 +91,8 @@ class Interface(object):
             occupied,
             xxhash.xxh64(key).intdigest(),
             seek,
-            size
+            size,
+            data
         )
         
     def readIndexHeader(self, index: bytes):
@@ -202,11 +204,12 @@ class Interface(object):
                     f.seek(key_exists)
                     cell = self.readIndexCell(f.read(self._index_cellsize))
                     
+                    blank = b'\x00' * self._block_size
                     if cell[2] == 0:
                         f.seek(0, 2)
                         location = f.tell()
                         if hard:
-                            f.write(b'\x00' * self._block_size)
+                            f.write(blank)
                         else:
                             f.truncate(location + self._block_size)
                     else:
@@ -217,18 +220,25 @@ class Interface(object):
                         True,
                         key,
                         location,
-                        cell[3]
+                        cell[3],
+                        cell[4]
                     ))
+
+                valhash = xxhash.xxh64(value).intdigest()
 
                 f.seek(key_exists)
                 cell = self.readIndexCell(f.read(self._index_cellsize))
+                
+                if cell[4] == valhash:
+                    return
                 
                 f.seek(key_exists)
                 f.write(self.constructIndexCell(
                     cell[0],
                     key,
                     cell[2],
-                    len(value)
+                    len(value),
+                    valhash
                 ))
                 
                 f.seek(cell[2])
@@ -247,7 +257,8 @@ class Interface(object):
                         False,
                         b'',
                         cell[2],
-                        cell[3]
+                        cell[3],
+                        cell[4]
                     ))
                 else:
                     raise Exceptions.BlockNotFound('!DELT Key: {0}'.format(
@@ -273,7 +284,8 @@ class Interface(object):
                         cell[0],
                         new_key,
                         cell[2],
-                        cell[3]
+                        cell[3],
+                        cell[4]
                     ))
                 else:
                     raise Exceptions.BlockNotFound('!RENM Key: {0}'.format(
@@ -459,14 +471,26 @@ class MultiblockHandler(Interface):
                     
                 return final
             
-        def _readrange(self, start: int, end: int, pad: bool = True) -> bytes:
+        def _readrange(
+            self,
+            start: int,
+            end: int,
+            nopad: bool = True,
+            edge: bool = False
+        ) -> bytes:
+                
             with self.interface.lock:
                 start_block = math.floor(start / self.interface._block_size)
                 
                 end_block = math.ceil(end / self.interface._block_size)
                 
+                if edge:
+                    collect_range = [start_block, end_block - 1]
+                else:
+                    collect_range = range(start_block, end_block)
+                
                 blocks = []
-                for block in range(start_block, end_block):
+                for block in collect_range:
                     key = self.interface.constructNodeBlockKey(
                         self.key, block
                     )
@@ -475,7 +499,7 @@ class MultiblockHandler(Interface):
                     
                 final = b''.join(blocks)
                     
-                if pad:
+                if nopad:
                     clean_start = start - (
                         start_block * self.interface._block_size
                     )
@@ -501,7 +525,8 @@ class MultiblockHandler(Interface):
                 chunk_buffer = bytearray(self._readrange(
                     self.position,
                     self.position + len(b),
-                    pad = False
+                    nopad = False,
+                    edge = True
                 ))
                 
                 clean_start = self.position - (
@@ -561,10 +586,18 @@ class Shelve(MutableMapping):
         with self.mapping.lock:
             self._ikeys.seek(0)
             kr = pickle.loads(self._ikeys.read())
+            
+            if key not in kr:
+                raise Exceptions.NodeDoesNotExist('!RMNOD Key: {0}'.format(
+                    key.hex()
+                ))
+                
             kr.remove(key)
+            fin = pickle.dumps(kr)
+            
             self._ikeys.seek(0)
-            self._ikeys.truncate(0)
-            self._ikeys.write(pickle.dumps(kr))
+            self._ikeys.truncate(len(fin))
+            self._ikeys.write(fin)
             
             key = self._hash_key(pickle.dumps(key))
             self.mapping.removeNode(key)
@@ -573,11 +606,14 @@ class Shelve(MutableMapping):
         with self.mapping.lock:
             self._ikeys.seek(0)
             kr = pickle.loads(self._ikeys.read())
+            
             if key not in kr:
                 kr.append(key)
+            fin = pickle.dumps(kr)
+            
             self._ikeys.seek(0)
-            self._ikeys.truncate(0)
-            self._ikeys.write(pickle.dumps(kr))
+            self._ikeys.truncate(len(fin))
+            self._ikeys.write(fin)
             
             key = self._hash_key(pickle.dumps(key))
             if not self.mapping.nodeExists(key):
