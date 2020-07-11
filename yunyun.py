@@ -25,6 +25,9 @@ class Exceptions(object):
         
     class NodeDoesNotExist(Exception):
         pass
+        
+    class TargetExists(Exception):
+        pass
 
 class Interface(object):
     _index_header_pattern = '<?IHH' # 9 bytes
@@ -238,6 +241,32 @@ class Interface(object):
                         key.hex()
                     ))
                     
+    def changeBlockKey(self, key: bytes, new_key: bytes):
+        with self.lock:
+            with open(self.path, 'rb+') as f:
+                key_exists = self.keyExists(new_key)
+                if key_exists:
+                    raise Exceptions.TargetExists('!RENM Key: {0}'.format(
+                        new_key.hex()
+                    ))
+                
+                key_exists = self.keyExists(key)
+                if key_exists:
+                    f.seek(key_exists)
+                    cell = self.readIndexCell(f.read(self._index_cellsize))
+                    
+                    f.seek(key_exists)
+                    f.write(self.constructIndexCell(
+                        cell[0],
+                        new_key,
+                        cell[2],
+                        cell[3]
+                    ))
+                else:
+                    raise Exceptions.BlockNotFound('!RENM Key: {0}'.format(
+                        key.hex()
+                    ))
+                    
     def readBlock(self, key: bytes):
         with self.lock:
             with open(self.path, 'rb+') as f:
@@ -286,6 +315,26 @@ class MultiblockHandler(Interface):
         
             for block in range(details['blocks']):
                 self.discardBlock(self.constructNodeBlockKey(key, block))
+                
+    def renameNode(self, key: bytes, new_key: bytes):
+        with self.lock:
+            if not self.nodeExists(key):
+                raise Exceptions.NodeDoesNotExist('!MVNOD Key: {0}'.format(
+                    key.hex()
+                ))
+            elif self.nodeExists(new_key):
+                raise Exceptions.TargetExists('!MVNOD Key: {0}'.format(
+                    new_key.hex()
+                ))
+                
+            details = self._getNodeProperties(key)
+            self.changeBlockKey(key, new_key)
+            
+            for block in range(details['blocks']):
+                self.changeBlockKey(
+                    self.constructNodeBlockKey(key, block),
+                    self.constructNodeBlockKey(new_key, block)
+                )
                 
     def nodeExists(self, key: bytes) -> bool:
         with self.lock:
