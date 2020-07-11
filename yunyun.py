@@ -480,6 +480,8 @@ class MultiblockHandler(Interface):
                     ipos += self.interface._block_size
                     
                 self.position += len(b)
+                
+                return len(b)
 
 if __name__ == '__main__':
     import code
