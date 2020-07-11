@@ -380,6 +380,7 @@ class MultiblockHandler(Interface):
                 )
                 
                 props['size'] = size
+                props['blocks'] = final_blocks
                 
                 self.interface._setNodeProperties(
                     self.key,
