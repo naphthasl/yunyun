@@ -38,6 +38,15 @@ class Interface(object):
     _index_cell_pattern   = '<?QIH' # 14 bytes
     
     def __init__(self, path, index_size = 4096, block_size = 4096):
+        if block_size < 16:
+            raise Exceptions.InvalidFormat(
+                'Block size is far too low.'
+            )
+        elif index_size < 64:
+            raise Exceptions.InvalidFormat(
+                'Index size is far too low.'
+            )
+        
         self._index_size = index_size
         self._block_size = block_size
         self._index_headersize = len(self.constructIndex())
