@@ -12,6 +12,7 @@ __license__ = 'MIT' # SEE LICENSE FILE
 import os, struct, xxhash, pickle, hashlib, io, math
 
 from filelock import Timeout, FileLock, SoftFileLock
+from collections.abc import MutableMapping
 
 class Exceptions(object):
     class BlockNotFound(Exception):
@@ -515,6 +516,75 @@ class MultiblockHandler(Interface):
                 self.position += len(b)
                 
                 return len(b)
+
+class Shelve(MutableMapping):
+    def __init__(self, *args, **kwargs):
+        self.mapping = MultiblockHandler(*args, **kwargs)
+        self._key_node_name = self._hash_key(b'__KEYS__')
+        
+        with self.mapping.lock:
+            first = False
+            if not self.mapping.nodeExists(self._key_node_name):
+                self.mapping.makeNode(self._key_node_name)
+                first = True
+            
+            self._ikeys = self.mapping.getHandle(self._key_node_name)
+            
+            if first:
+                self._ikeys.write(pickle.dumps([]))
+                self._ikeys.seek(0)
+        
+    def __getitem__(self, key):
+        with self.mapping.lock:
+            key = self._hash_key(pickle.dumps(key))
+            return pickle.loads(self.mapping.getHandle(key).read())
+        
+    def __delitem__(self, key):
+        with self.mapping.lock:
+            self._ikeys.seek(0)
+            kr = pickle.loads(self._ikeys.read())
+            kr.remove(key)
+            self._ikeys.seek(0)
+            self._ikeys.truncate(0)
+            self._ikeys.write(pickle.dumps(kr))
+            
+            key = self._hash_key(pickle.dumps(key))
+            self.mapping.removeNode(key)
+        
+    def __setitem__(self, key, value):
+        with self.mapping.lock:
+            self._ikeys.seek(0)
+            kr = pickle.loads(self._ikeys.read())
+            kr.append(key)
+            self._ikeys.seek(0)
+            self._ikeys.truncate(0)
+            self._ikeys.write(pickle.dumps(kr))
+            
+            key = self._hash_key(pickle.dumps(key))
+            if not self.mapping.nodeExists(key):
+                self.mapping.makeNode(key)
+            
+            handle = self.mapping.getHandle(key)
+            
+            handle.truncate(0)
+            handle.write(pickle.dumps(value))
+        
+    def __iter__(self):
+        with self.mapping.lock:
+            self._ikeys.seek(0)
+            kr = pickle.loads(self._ikeys.read())
+            
+            return iter(kr)
+            
+    def __len__(self):
+        with self.mapping.lock:
+            self._ikeys.seek(0)
+            kr = pickle.loads(self._ikeys.read())
+            
+            return len(kr)
+        
+    def _hash_key(self, key):
+        return hashlib.sha256(key).digest()
 
 if __name__ == '__main__':
     import code
