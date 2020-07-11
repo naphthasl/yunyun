@@ -13,9 +13,13 @@ import os, struct, xxhash
 
 from filelock import Timeout, FileLock, SoftFileLock
 
+class Exceptions(object):
+    class BlockNotFound(Exception):
+        pass
+
 class Interface(object):
     _index_header_pattern = '<?IHH' # 9 bytes
-    _index_cell_pattern   = '<?QI'  # 12 bytes
+    _index_cell_pattern   = '<?QIH' # 14 bytes
     
     def __init__(self, path, index_size = 4096, block_size = 4096):
         self._index_size = index_size
@@ -52,14 +56,16 @@ class Interface(object):
         self,
         occupied: bool = False,
         key: bytes = b'',
-        seek: int = 0
+        seek: int = 0,
+        size: int = 0
     ) -> bytes:
             
         return struct.pack(
             self._index_cell_pattern,
             occupied,
             xxhash.xxh64(key).intdigest(),
-            seek
+            seek,
+            size
         )
         
     def readIndexHeader(self, index: bytes):
@@ -177,11 +183,20 @@ class Interface(object):
                     f.write(self.constructIndexCell(
                         True,
                         key,
-                        location
+                        location,
+                        cell[3]
                     ))
 
                 f.seek(key_exists)
                 cell = self.readIndexCell(f.read(self._index_cellsize))
+                
+                f.seek(key_exists)
+                f.write(self.constructIndexCell(
+                    cell[0],
+                    key,
+                    cell[2],
+                    len(value)
+                ))
                 
                 f.seek(cell[2])
                 f.write(value)
@@ -198,7 +213,12 @@ class Interface(object):
                     f.write(self.constructIndexCell(
                         False,
                         b'',
-                        cell[2]
+                        cell[2],
+                        cell[3]
+                    ))
+                else:
+                    raise Exceptions.BlockNotFound('!DELT Key: {0}'.format(
+                        key.hex()
                     ))
                     
     def readBlock(self, key: bytes):
@@ -210,9 +230,11 @@ class Interface(object):
                     cell = self.readIndexCell(f.read(self._index_cellsize))
                     
                     f.seek(cell[2])
-                    return f.read(self._block_size)
+                    return f.read(cell[3])
                 else:
-                    return (b'\x00' * self._block_size)
+                    raise Exceptions.BlockNotFound('!READ Key: {0}'.format(
+                        key.hex()
+                    ))
 
 if __name__ == '__main__':
     x = Interface('test.yun')
@@ -226,5 +248,15 @@ if __name__ == '__main__':
     x.writeBlock(key, content)
     print(x.readBlock(key))
     x.discardBlock(key)
-    print(x.readBlock(key))
+    
+    try:
+        print(x.readBlock(key))
+    except Exception as e:
+        print(e)
+    
+    try:
+        x.discardBlock(key)
+    except Exception as e:
+        print(e)
+    
     x.writeBlock(key, content)
