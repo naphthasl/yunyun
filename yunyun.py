@@ -58,7 +58,7 @@ class Interface(object):
         
         new = False
         if (not os.path.isfile(self.path) or os.path.getsize(self.path) == 0):
-            open(self.path, 'wb+').close()
+            open(self.path, 'ab+').close()
             new = True
         else:
             hdr = open(self.path, 'rb').read(len(self._identity_header))
