@@ -655,6 +655,6 @@ class Shelve(MutableMapping):
 if __name__ == '__main__':
     import code
     
-    x = MultiblockHandler('test.yun')
+    x = Shelve('test.yun')
     
     code.interact(local=dict(globals(), **locals()))
