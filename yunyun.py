@@ -3,6 +3,10 @@
 Yunyun is intended to be a simplified persistent data storage system similar
 to Python's built in shelve, but with features such as transparent file locking
 to allow for multi-threaded and multi-process access safely.
+
+GitHub & Further Information: https://github.com/naphthasl/yunyun
+
+License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
