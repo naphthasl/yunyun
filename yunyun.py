@@ -36,6 +36,7 @@ class Exceptions(object):
 class Interface(object):
     _index_header_pattern = '<?IHH'  # 9  bytes
     _index_cell_pattern   = '<?QIHQ' # 22 bytes
+    _identity_header      = b'YUN'   # 3 bytes
     
     def __init__(self, path, index_size = 4096, block_size = 4096):
         if block_size < 16:
@@ -59,6 +60,12 @@ class Interface(object):
         if (not os.path.isfile(self.path) or os.path.getsize(self.path) == 0):
             open(self.path, 'wb+').close()
             new = True
+        else:
+            hdr = open(self.path, 'rb').read(len(self._identity_header))
+            if hdr != self._identity_header:
+                raise Exceptions.InvalidFormat(
+                    'Not a YunYun file!'
+                )
         
         self.lock = FileLock(self.path + '.lock')
         
@@ -69,7 +76,7 @@ class Interface(object):
             self.getIndexes()
             
     def constructIndex(self, continuation = 0) -> bytes:
-        return struct.pack(
+        return self._identity_header + struct.pack(
             self._index_header_pattern,
             bool(continuation),
             continuation,
@@ -98,7 +105,7 @@ class Interface(object):
     def readIndexHeader(self, index: bytes):
         return struct.unpack(
             self._index_header_pattern,
-            index
+            index[len(self._identity_header):]
         )
     
     def readIndexCell(self, cell: bytes):
