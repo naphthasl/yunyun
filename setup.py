@@ -8,7 +8,7 @@ if sys.version_info < (2, 7):
 
 import yunyun
 
-setup(name='yunyun',
+setup(name='yunyundb',
     version=yunyun.__version__,
     description='Yunyun is intended to be a simplified persistent data storage system.',
     long_description=yunyun.__doc__,
