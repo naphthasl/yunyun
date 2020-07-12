@@ -70,7 +70,7 @@ class Interface(object):
         self.lock = FileLock(self.path + '.lock')
         
         if new:
-            self.createIndex()
+            self.requestFreeIndexCell()
         else:
             # Update block and index sizes
             self.getIndexes()
