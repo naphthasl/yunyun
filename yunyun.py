@@ -45,18 +45,25 @@ class Exceptions(object):
 class AtomicCachingFileLock(FileLock):
     def reset_cache(self):
         self.cache = {}
+        self.cache['cells'] = {}
     
     def __init__(self, *args, **kwargs):
+        self._original_path = args[0]
+        args = list(args)
+        args[0] += '.lock'
         super().__init__(*args, **kwargs)
         self.reset_cache()
+        self.handle = None
         
     def _acquire(self, *args, **kwargs):
         super()._acquire(*args, **kwargs)
         self.reset_cache()
+        self.handle = open(self._original_path, 'rb+')
         
     def _release(self, *args, **kwargs):
         super()._release(*args, **kwargs)
         self.reset_cache()
+        self.handle.close()
 
 class Interface(object):
     _index_header_pattern = '<?IHH'  # 9  bytes
@@ -92,7 +99,7 @@ class Interface(object):
                     'Not a YunYun file!'
                 )
         
-        self.lock = AtomicCachingFileLock(self.path + '.lock')
+        self.lock = AtomicCachingFileLock(self.path)
         
         if new:
             self.requestFreeIndexCell()
@@ -174,7 +181,6 @@ class Interface(object):
                 return indexes
     
     def getIndexesCells(self):
-        cells = {}
         with self.lock:
             indexes = self.getIndexes()
                 
@@ -184,10 +190,16 @@ class Interface(object):
                     
                     for y in range(self._indexes):
                         pos = f.tell()
-                        read = f.read(self._index_cellsize)
-                        cells[pos] = self.readIndexCell(read)
                         
-        return cells
+                        if pos not in self.lock.cache['cells']:
+                            read = f.read(self._index_cellsize)
+                            self.lock.cache['cells'][pos] = (
+                                self.readIndexCell(read)
+                            )
+                        else:
+                            f.seek(self._index_cellsize, 1)
+                    
+        return self.lock.cache['cells']
     
     def createIndex(self):
         with self.lock:
@@ -265,6 +277,11 @@ class Interface(object):
                         cell[3],
                         cell[4]
                     ))
+                    
+                    try:
+                        del self.lock.cache['cells'][key_exists]
+                    except KeyError:
+                        pass
 
                 valhash = xxhash.xxh64(value).intdigest()
 
@@ -282,6 +299,11 @@ class Interface(object):
                     len(value),
                     valhash
                 ))
+                
+                try:
+                    del self.lock.cache['cells'][key_exists]
+                except KeyError:
+                    pass
                 
                 f.seek(cell[2])
                 f.write(value)
@@ -302,6 +324,11 @@ class Interface(object):
                         cell[3],
                         cell[4]
                     ))
+                    
+                    try:
+                        del self.lock.cache['cells'][key_exists]
+                    except KeyError:
+                        pass
                 else:
                     raise Exceptions.BlockNotFound('!DELT Key: {0}'.format(
                         key.hex()
@@ -329,6 +356,11 @@ class Interface(object):
                         cell[3],
                         cell[4]
                     ))
+                    
+                    try:
+                        del self.lock.cache['cells'][key_exists]
+                    except KeyError:
+                        pass
                 else:
                     raise Exceptions.BlockNotFound('!RENM Key: {0}'.format(
                         key.hex()
