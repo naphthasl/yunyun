@@ -153,29 +153,29 @@ class Interface(object):
             else:
                 indexes = []
                 
-                with open(self.path, 'rb') as f:
-                    f.seek(0, 2)
-                    length = f.tell()
-                    position = 0
-                    while position < length:
-                        f.seek(position)
-                        read = self.readIndexHeader(
-                            f.read(self._index_headersize)
-                        )
-                        
-                        # Set these here!
-                        self._index_size = read[2]
-                        self._block_size = read[3]
-                        self._indexes = (
-                            self._index_size // self._index_cellsize
-                        )
-                        
-                        indexes.append((position, read))
-                        continuation = read[1]
-                        if read[0]:
-                            position = continuation
-                        else:
-                            break
+                f = self.lock.handle
+                f.seek(0, 2)
+                length = f.tell()
+                position = 0
+                while position < length:
+                    f.seek(position)
+                    read = self.readIndexHeader(
+                        f.read(self._index_headersize)
+                    )
+                    
+                    # Set these here!
+                    self._index_size = read[2]
+                    self._block_size = read[3]
+                    self._indexes = (
+                        self._index_size // self._index_cellsize
+                    )
+                    
+                    indexes.append((position, read))
+                    continuation = read[1]
+                    if read[0]:
+                        position = continuation
+                    else:
+                        break
                 
                 self.lock.cache['indexes'] = indexes
                 return indexes
@@ -184,20 +184,20 @@ class Interface(object):
         with self.lock:
             indexes = self.getIndexes()
                 
-            with open(self.path, 'rb+') as f:
-                for x in indexes:
-                    f.seek(x[0] + self._index_headersize)
+            f = self.lock.handle
+            for x in indexes:
+                f.seek(x[0] + self._index_headersize)
+                
+                for y in range(self._indexes):
+                    pos = f.tell()
                     
-                    for y in range(self._indexes):
-                        pos = f.tell()
-                        
-                        if pos not in self.lock.cache['cells']:
-                            read = f.read(self._index_cellsize)
-                            self.lock.cache['cells'][pos] = (
-                                self.readIndexCell(read)
-                            )
-                        else:
-                            f.seek(self._index_cellsize, 1)
+                    if pos not in self.lock.cache['cells']:
+                        read = f.read(self._index_cellsize)
+                        self.lock.cache['cells'][pos] = (
+                            self.readIndexCell(read)
+                        )
+                    else:
+                        f.seek(self._index_cellsize, 1)
                     
         return self.lock.cache['cells']
     
@@ -205,18 +205,18 @@ class Interface(object):
         with self.lock:
             indexes = self.getIndexes()
             
-            with open(self.path, 'rb+') as f:
-                f.seek(0, 2)
-                length = f.tell()
+            f = self.lock.handle
+            f.seek(0, 2)
+            length = f.tell()
+            
+            if len(indexes) > 0:
+                f.seek(indexes[-1][0])
+                f.write(self.constructIndex(length))
                 
-                if len(indexes) > 0:
-                    f.seek(indexes[-1][0])
-                    f.write(self.constructIndex(length))
-                    
-                f.seek(0, 2)
-                f.write(self.constructIndex())
-                f.write(self.constructIndexCell() * self._indexes)
-                del self.lock.cache['indexes']
+            f.seek(0, 2)
+            f.write(self.constructIndex())
+            f.write(self.constructIndexCell() * self._indexes)
+            del self.lock.cache['indexes']
               
     def keyExists(self, key: bytes):
         with self.lock:
@@ -250,136 +250,136 @@ class Interface(object):
             )
         
         with self.lock:
-            with open(self.path, 'rb+') as f:
-                key_exists = self.keyExists(key)
-                if not key_exists:
-                    key_exists = self.requestFreeIndexCell()
-                    
-                    f.seek(key_exists)
-                    cell = self.readIndexCell(f.read(self._index_cellsize))
-                    
-                    blank = b'\x00' * self._block_size
-                    if cell[2] == 0:
-                        f.seek(0, 2)
-                        location = f.tell()
-                        if hard:
-                            f.write(blank)
-                        else:
-                            f.truncate(location + self._block_size)
-                    else:
-                        location = cell[2]
-                    
-                    f.seek(key_exists)
-                    f.write(self.constructIndexCell(
-                        True,
-                        key,
-                        location,
-                        cell[3],
-                        cell[4]
-                    ))
-                    
-                    try:
-                        del self.lock.cache['cells'][key_exists]
-                    except KeyError:
-                        pass
-
-                valhash = xxhash.xxh64(value).intdigest()
-
+            f = self.lock.handle
+            key_exists = self.keyExists(key)
+            if not key_exists:
+                key_exists = self.requestFreeIndexCell()
+                
                 f.seek(key_exists)
                 cell = self.readIndexCell(f.read(self._index_cellsize))
                 
-                if cell[4] == valhash:
-                    return
+                blank = b'\x00' * self._block_size
+                if cell[2] == 0:
+                    f.seek(0, 2)
+                    location = f.tell()
+                    if hard:
+                        f.write(blank)
+                    else:
+                        f.truncate(location + self._block_size)
+                else:
+                    location = cell[2]
                 
                 f.seek(key_exists)
                 f.write(self.constructIndexCell(
-                    cell[0],
+                    True,
                     key,
-                    cell[2],
-                    len(value),
-                    valhash
+                    location,
+                    cell[3],
+                    cell[4]
                 ))
                 
                 try:
                     del self.lock.cache['cells'][key_exists]
                 except KeyError:
                     pass
-                
-                f.seek(cell[2])
-                f.write(value)
+
+            valhash = xxhash.xxh64(value).intdigest()
+
+            f.seek(key_exists)
+            cell = self.readIndexCell(f.read(self._index_cellsize))
+            
+            if cell[4] == valhash:
+                return
+            
+            f.seek(key_exists)
+            f.write(self.constructIndexCell(
+                cell[0],
+                key,
+                cell[2],
+                len(value),
+                valhash
+            ))
+            
+            try:
+                del self.lock.cache['cells'][key_exists]
+            except KeyError:
+                pass
+            
+            f.seek(cell[2])
+            f.write(value)
                 
     def discardBlock(self, key: bytes):
         with self.lock:
-            with open(self.path, 'rb+') as f:
-                key_exists = self.keyExists(key)
-                if key_exists:
-                    f.seek(key_exists)
-                    cell = self.readIndexCell(f.read(self._index_cellsize))
-                    
-                    f.seek(key_exists)
-                    f.write(self.constructIndexCell(
-                        False,
-                        b'',
-                        cell[2],
-                        cell[3],
-                        cell[4]
-                    ))
-                    
-                    try:
-                        del self.lock.cache['cells'][key_exists]
-                    except KeyError:
-                        pass
-                else:
-                    raise Exceptions.BlockNotFound('!DELT Key: {0}'.format(
-                        key.hex()
-                    ))
+            f = self.lock.handle
+            key_exists = self.keyExists(key)
+            if key_exists:
+                f.seek(key_exists)
+                cell = self.readIndexCell(f.read(self._index_cellsize))
+                
+                f.seek(key_exists)
+                f.write(self.constructIndexCell(
+                    False,
+                    b'',
+                    cell[2],
+                    cell[3],
+                    cell[4]
+                ))
+                
+                try:
+                    del self.lock.cache['cells'][key_exists]
+                except KeyError:
+                    pass
+            else:
+                raise Exceptions.BlockNotFound('!DELT Key: {0}'.format(
+                    key.hex()
+                ))
                     
     def changeBlockKey(self, key: bytes, new_key: bytes):
         with self.lock:
-            with open(self.path, 'rb+') as f:
-                key_exists = self.keyExists(new_key)
-                if key_exists:
-                    raise Exceptions.TargetExists('!RENM Key: {0}'.format(
-                        new_key.hex()
-                    ))
+            f = self.lock.handle
+            key_exists = self.keyExists(new_key)
+            if key_exists:
+                raise Exceptions.TargetExists('!RENM Key: {0}'.format(
+                    new_key.hex()
+                ))
+            
+            key_exists = self.keyExists(key)
+            if key_exists:
+                f.seek(key_exists)
+                cell = self.readIndexCell(f.read(self._index_cellsize))
                 
-                key_exists = self.keyExists(key)
-                if key_exists:
-                    f.seek(key_exists)
-                    cell = self.readIndexCell(f.read(self._index_cellsize))
-                    
-                    f.seek(key_exists)
-                    f.write(self.constructIndexCell(
-                        cell[0],
-                        new_key,
-                        cell[2],
-                        cell[3],
-                        cell[4]
-                    ))
-                    
-                    try:
-                        del self.lock.cache['cells'][key_exists]
-                    except KeyError:
-                        pass
-                else:
-                    raise Exceptions.BlockNotFound('!RENM Key: {0}'.format(
-                        key.hex()
-                    ))
+                f.seek(key_exists)
+                f.write(self.constructIndexCell(
+                    cell[0],
+                    new_key,
+                    cell[2],
+                    cell[3],
+                    cell[4]
+                ))
+                
+                try:
+                    del self.lock.cache['cells'][key_exists]
+                except KeyError:
+                    pass
+            else:
+                raise Exceptions.BlockNotFound('!RENM Key: {0}'.format(
+                    key.hex()
+                ))
                     
     def readBlock(self, key: bytes):
         with self.lock:
-            with open(self.path, 'rb+') as f:
-                key_exists = self.keyExists(key)
-                if key_exists:
-                    f.seek(key_exists)
-                    cell = self.readIndexCell(f.read(self._index_cellsize))
-                    
-                    f.seek(cell[2])
-                    return f.read(cell[3])
-                else:
-                    raise Exceptions.BlockNotFound('!READ Key: {0}'.format(
-                        key.hex()
-                    ))
+            f = self.lock.handle
+            key_exists = self.keyExists(key)
+            if key_exists:
+                f.seek(key_exists)
+                cell = self.readIndexCell(f.read(self._index_cellsize))
+                
+                f.seek(cell[2])
+                return f.read(cell[3])
+            else:
+                raise Exceptions.BlockNotFound('!READ Key: {0}'.format(
+                    key.hex()
+                ))
 
 class MultiblockHandler(Interface):
     def constructNodeBlockKey(self, key: bytes, block: int):
