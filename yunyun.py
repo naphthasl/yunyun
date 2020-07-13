@@ -42,6 +42,22 @@ class Exceptions(object):
     class InvalidFormat(Exception):
         pass
 
+class AtomicCachingFileLock(FileLock):
+    def reset_cache(self):
+        self.cache = {}
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reset_cache()
+        
+    def _acquire(self, *args, **kwargs):
+        super()._acquire(*args, **kwargs)
+        self.reset_cache()
+        
+    def _release(self, *args, **kwargs):
+        super()._release(*args, **kwargs)
+        self.reset_cache()
+
 class Interface(object):
     _index_header_pattern = '<?IHH'  # 9  bytes
     _index_cell_pattern   = '<?QIHQ' # 22 bytes
@@ -76,7 +92,7 @@ class Interface(object):
                     'Not a YunYun file!'
                 )
         
-        self.lock = FileLock(self.path + '.lock')
+        self.lock = AtomicCachingFileLock(self.path + '.lock')
         
         if new:
             self.requestFreeIndexCell()
@@ -124,29 +140,38 @@ class Interface(object):
         )
         
     def getIndexes(self):
-        indexes = []
         with self.lock:
-            with open(self.path, 'rb') as f:
-                f.seek(0, 2)
-                length = f.tell()
-                position = 0
-                while position < length:
-                    f.seek(position)
-                    read = self.readIndexHeader(f.read(self._index_headersize))
-                    
-                    # Set these here!
-                    self._index_size = read[2]
-                    self._block_size = read[3]
-                    self._indexes = self._index_size // self._index_cellsize
-                    
-                    indexes.append((position, read))
-                    continuation = read[1]
-                    if read[0]:
-                        position = continuation
-                    else:
-                        break
-        
-        return indexes
+            if 'indexes' in self.lock.cache:
+                return self.lock.cache['indexes']
+            else:
+                indexes = []
+                
+                with open(self.path, 'rb') as f:
+                    f.seek(0, 2)
+                    length = f.tell()
+                    position = 0
+                    while position < length:
+                        f.seek(position)
+                        read = self.readIndexHeader(
+                            f.read(self._index_headersize)
+                        )
+                        
+                        # Set these here!
+                        self._index_size = read[2]
+                        self._block_size = read[3]
+                        self._indexes = (
+                            self._index_size // self._index_cellsize
+                        )
+                        
+                        indexes.append((position, read))
+                        continuation = read[1]
+                        if read[0]:
+                            position = continuation
+                        else:
+                            break
+                
+                self.lock.cache['indexes'] = indexes
+                return indexes
     
     def getIndexesCells(self):
         cells = {}
@@ -179,6 +204,7 @@ class Interface(object):
                 f.seek(0, 2)
                 f.write(self.constructIndex())
                 f.write(self.constructIndexCell() * self._indexes)
+                del self.lock.cache['indexes']
               
     def keyExists(self, key: bytes):
         with self.lock:
@@ -662,8 +688,11 @@ class Shelve(MutableMapping):
         return hashlib.sha256(key).digest()
 
 if __name__ == '__main__':
-    import code
+    import code, progressbar
     
     x = Shelve('test.yun')
     
-    code.interact(local=dict(globals(), **locals()))
+    for _ in progressbar.progressbar(range(1024)):
+        x[os.urandom(8)] = os.urandom(8)
+    
+    # code.interact(local=dict(globals(), **locals()))
