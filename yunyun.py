@@ -18,7 +18,7 @@ __all__ = [
     'Shelve'
 ]
 
-import os, struct, xxhash, pickle, hashlib, io, math
+import os, struct, xxhash, pickle, hashlib, io, math, threading
 
 from filelock import Timeout, FileLock, SoftFileLock
 from collections.abc import MutableMapping
@@ -51,16 +51,19 @@ class AtomicCachingFileLock(FileLock):
         self._original_path = args[0]
         args = list(args)
         args[0] += '.lock'
+        self._super_thread_lock = threading.Lock()
         super().__init__(*args, **kwargs)
         self.reset_cache()
         self.handle = None
         
     def _acquire(self, *args, **kwargs):
+        self._super_thread_lock.acquire()
         super()._acquire(*args, **kwargs)
         self.reset_cache()
         self.handle = open(self._original_path, 'rb+')
         
     def _release(self, *args, **kwargs):
+        self._super_thread_lock.release()
         super()._release(*args, **kwargs)
         self.reset_cache()
         self.handle.close()
