@@ -284,12 +284,11 @@ class Interface(object):
                 f.seek(key_exists)
                 cell = self.readIndexCell(f.read(self._index_cellsize))
                 
-                blank = b'\x00' * self._block_size
                 if cell[2] == 0:
                     f.seek(0, 2)
                     location = f.tell()
                     if hard:
-                        f.write(blank)
+                        f.write(b'\x00' * self._block_size)
                     else:
                         f.truncate(location + self._block_size)
                 else:
