@@ -19,6 +19,7 @@ __all__ = [
 ]
 
 import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
+import lz4.frame
 
 from filelock import Timeout, FileLock, SoftFileLock
 from collections.abc import MutableMapping
@@ -682,8 +683,7 @@ class Shelve(MutableMapping):
             self._ikeys = self.mapping.getHandle(self._key_node_name)
             
             if first:
-                self._ikeys.write(pickle.dumps([]))
-                self._ikeys.seek(0)
+                self._write_keys([])
         
     def __getitem__(self, key):
         with self.mapping.lock:
@@ -693,10 +693,22 @@ class Shelve(MutableMapping):
             
             return pickle.loads(self.mapping.getHandle(key).read())
         
-    def __delitem__(self, key):
+    def _get_keys(self):
         with self.mapping.lock:
             self._ikeys.seek(0)
-            kr = pickle.loads(self._ikeys.read())
+            return pickle.loads(lz4.frame.decompress(self._ikeys.read()))
+            
+    def _write_keys(self, kr):
+        with self.mapping.lock:
+            fin = lz4.frame.compress(pickle.dumps(kr))
+            
+            self._ikeys.seek(0)
+            self._ikeys.truncate(len(fin))
+            self._ikeys.write(fin)
+        
+    def __delitem__(self, key):
+        with self.mapping.lock:
+            kr = self._get_keys()
             
             if key not in kr:
                 raise Exceptions.NodeDoesNotExist('!RMNOD Key: {0}'.format(
@@ -704,7 +716,7 @@ class Shelve(MutableMapping):
                 ))
                 
             kr.remove(key)
-            fin = pickle.dumps(kr)
+            self._write_keys(kr)
             
             self._ikeys.seek(0)
             self._ikeys.truncate(len(fin))
@@ -715,16 +727,11 @@ class Shelve(MutableMapping):
         
     def __setitem__(self, key, value):
         with self.mapping.lock:
-            self._ikeys.seek(0)
-            kr = pickle.loads(self._ikeys.read())
+            kr = self._get_keys()
             
             if key not in kr:
                 kr.append(key)
-            fin = pickle.dumps(kr)
-            
-            self._ikeys.seek(0)
-            self._ikeys.truncate(len(fin))
-            self._ikeys.write(fin)
+            self._write_keys(kr)
             
             key = self._hash_key(pickle.dumps(key))
             if not self.mapping.nodeExists(key):
@@ -738,17 +745,11 @@ class Shelve(MutableMapping):
         
     def __iter__(self):
         with self.mapping.lock:
-            self._ikeys.seek(0)
-            kr = pickle.loads(self._ikeys.read())
-            
-            return iter(kr)
+            return iter(self._get_keys())
             
     def __len__(self):
         with self.mapping.lock:
-            self._ikeys.seek(0)
-            kr = pickle.loads(self._ikeys.read())
-            
-            return len(kr)
+            return len(self._get_keys())
         
     def _hash_key(self, key):
         return hashlib.sha256(key).digest()
