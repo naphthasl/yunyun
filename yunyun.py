@@ -193,23 +193,26 @@ class Interface(object):
                         
             return self.lock.cache['indexes']
     
+    @functools.lru_cache(maxsize=_cache_size)
+    def generateIndexPositions(self, pos):
+        return [
+            pos + (self._index_cellsize * y) for y in range(
+                self._indexes
+            )
+        ]
+    
     def getIndexesCells(self):
         with self.lock:
             indexes = self.getIndexes()
                 
             f = self.lock.handle
             for x in indexes:
-                f.seek(x[0] + self._index_headersize)
-                
-                pos = f.tell()
-                positions = [
-                    pos + (self._index_cellsize * y) for y in range(
-                        self._indexes
-                    )
-                ]
+                index_pointer = x[0] + self._index_headersize
+                positions = self.generateIndexPositions(index_pointer)
                 
                 if not all(
                     item in self.lock.cache['cells'] for item in positions):
+                    f.seek(index_pointer)
                         
                     allcells = io.BytesIO(f.read(
                         self._indexes * self._index_cellsize
@@ -235,14 +238,20 @@ class Interface(object):
                 f.seek(indexes[-1][0])
                 f.write(self.constructIndex(length))
                 
+            actual_header = self.constructIndex()
             temp = io.BytesIO(bytes(self._index_size))
-            temp.write(self.constructIndex())
+            temp.write(actual_header)
             temp.write(self.constructIndexCell() * self._indexes)
             temp.seek(0)
             
             f.seek(0, 2)
             f.write(temp.read())
-            del self.lock.cache['indexes']
+            
+            # Originally deleted the whole index cache, but there is no
+            # point for that at all - we can just add another blank header
+            self.lock.cache['indexes'].append((length, self.readIndexHeader(
+                actual_header
+            )))
               
     def keyExists(self, key: bytes):
         with self.lock:
