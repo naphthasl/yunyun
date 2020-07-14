@@ -18,7 +18,7 @@ __all__ = [
     'Shelve'
 ]
 
-import os, struct, xxhash, pickle, hashlib, io, math, threading
+import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
 
 from filelock import Timeout, FileLock, SoftFileLock
 from collections.abc import MutableMapping
@@ -72,6 +72,7 @@ class Interface(object):
     _index_header_pattern = '<?IHH'  # 9  bytes
     _index_cell_pattern   = '<?QIHQ' # 22 bytes
     _identity_header      = b'YUN'   # 3 bytes
+    _cache_size           = 4096
     
     def __init__(self, path, index_size = 4096, block_size = 4096):
         if block_size < 16:
@@ -87,7 +88,8 @@ class Interface(object):
         self._block_size = block_size
         self._index_headersize = len(self.constructIndex())
         self._index_cellsize = len(self.constructIndexCell())
-        self._indexes = self._index_size // self._index_cellsize
+        self.recalculateIndexes()
+        self.reconfigured = False
         
         self.path = path
         
@@ -110,6 +112,14 @@ class Interface(object):
             # Update block and index sizes
             self.getIndexes()
             
+    def recalculateIndexes(self):
+        self._indexes = math.floor(
+            (
+                self._index_size - self._index_headersize
+            ) / self._index_cellsize
+        )
+            
+    # No caching here in case block/index size changes
     def constructIndex(self, continuation = 0) -> bytes:
         return self._identity_header + struct.pack(
             self._index_header_pattern,
@@ -119,6 +129,7 @@ class Interface(object):
             self._block_size
         )
         
+    @functools.lru_cache(maxsize=_cache_size)
     def constructIndexCell(
         self,
         occupied: bool = False,
@@ -137,12 +148,14 @@ class Interface(object):
             data
         )
         
+    @functools.lru_cache(maxsize=_cache_size)
     def readIndexHeader(self, index: bytes):
         return struct.unpack(
             self._index_header_pattern,
             index[len(self._identity_header):]
         )
     
+    @functools.lru_cache(maxsize=_cache_size)
     def readIndexCell(self, cell: bytes):
         return struct.unpack(
             self._index_cell_pattern,
@@ -151,10 +164,8 @@ class Interface(object):
         
     def getIndexes(self):
         with self.lock:
-            if 'indexes' in self.lock.cache:
-                return self.lock.cache['indexes']
-            else:
-                indexes = []
+            if 'indexes' not in self.lock.cache:
+                self.lock.cache['indexes'] = []
                 
                 f = self.lock.handle
                 f.seek(0, 2)
@@ -167,21 +178,20 @@ class Interface(object):
                     )
                     
                     # Set these here!
-                    self._index_size = read[2]
-                    self._block_size = read[3]
-                    self._indexes = (
-                        self._index_size // self._index_cellsize
-                    )
+                    if not self.reconfigured:
+                        self._index_size = read[2]
+                        self._block_size = read[3]
+                        self.recalculateIndexes()
+                        self.reconfigured = True
                     
-                    indexes.append((position, read))
+                    self.lock.cache['indexes'].append((position, read))
                     continuation = read[1]
                     if read[0]:
                         position = continuation
                     else:
                         break
-                
-                self.lock.cache['indexes'] = indexes
-                return indexes
+                        
+            return self.lock.cache['indexes']
     
     def getIndexesCells(self):
         with self.lock:
@@ -191,16 +201,25 @@ class Interface(object):
             for x in indexes:
                 f.seek(x[0] + self._index_headersize)
                 
-                for y in range(self._indexes):
-                    pos = f.tell()
+                pos = f.tell()
+                positions = [
+                    pos + (self._index_cellsize * y) for y in range(
+                        self._indexes
+                    )
+                ]
+                
+                if not all(
+                    item in self.lock.cache['cells'] for item in positions):
+                        
+                    allcells = io.BytesIO(f.read(
+                        self._indexes * self._index_cellsize
+                    ))
                     
-                    if pos not in self.lock.cache['cells']:
-                        read = f.read(self._index_cellsize)
-                        self.lock.cache['cells'][pos] = (
+                    for z in positions:
+                        read = allcells.read(self._index_cellsize)
+                        self.lock.cache['cells'][z] = (
                             self.readIndexCell(read)
                         )
-                    else:
-                        f.seek(self._index_cellsize, 1)
                     
         return self.lock.cache['cells']
     
@@ -216,9 +235,13 @@ class Interface(object):
                 f.seek(indexes[-1][0])
                 f.write(self.constructIndex(length))
                 
+            temp = io.BytesIO(bytes(self._index_size))
+            temp.write(self.constructIndex())
+            temp.write(self.constructIndexCell() * self._indexes)
+            temp.seek(0)
+            
             f.seek(0, 2)
-            f.write(self.constructIndex())
-            f.write(self.constructIndexCell() * self._indexes)
+            f.write(temp.read())
             del self.lock.cache['indexes']
               
     def keyExists(self, key: bytes):
@@ -728,6 +751,9 @@ if __name__ == '__main__':
     x = Shelve('test.yun')
     
     for _ in progressbar.progressbar(range(1024)):
-        x[os.urandom(8)] = os.urandom(8)
+        key = os.urandom(8)
+        value = os.urandom(8)
+        x[key] = value
+        assert x[key] == value
     
     # code.interact(local=dict(globals(), **locals()))
