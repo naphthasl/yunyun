@@ -20,7 +20,8 @@ setup(name='yunyundb',
     license=yunyun.__license__,
     install_requires=[
         'xxhash',
-        'filelock'
+        'filelock',
+        'lz4'
     ],
     platforms='any',
     python_requires='>=3.6',
