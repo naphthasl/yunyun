@@ -762,15 +762,39 @@ class Shelve(MutableMapping):
     def _hash_key(self, key):
         return hashlib.sha256(key).digest()
 
+class InstanceLockedShelve(Shelve):
+    """
+    This will share the same file lock and cache for all operations, but for as
+    long as this object is instantiated, no other thread or process will be
+    able to access the shelve.
+    
+    So, in simple terms, it's faster, but only if you're working with a single
+    thread or process.
+    
+    Can be used with `with`.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        self.mapping.lock.acquire()
+        
+    def __enter__(self, *args, **kwargs):
+        self.mapping.lock.acquire()
+        
+        return self
+        
+    def __exit__(self, *args, **kwargs):
+        self.mapping.lock.release()
+
 if __name__ == '__main__':
     import code, progressbar
     
-    x = Shelve('test.yun')
-    
-    for _ in progressbar.progressbar(range(1024)):
-        key = os.urandom(8)
-        value = os.urandom(8)
-        x[key] = value
-        assert x[key] == value
+    with InstanceLockedShelve('test.yun') as x:
+        for _ in progressbar.progressbar(range(1024)):
+            key = os.urandom(8)
+            value = os.urandom(8)
+            x[key] = value
+            assert x[key] == value
     
     # code.interact(local=dict(globals(), **locals()))
