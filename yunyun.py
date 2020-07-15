@@ -807,11 +807,15 @@ if __name__ == '__main__':
     x = Shelve('test.yun')
     for _ in progressbar.progressbar(range(1024)):
         key = rbytes()
-        value = rbytes() * 64
-        value2 = rbytes()
-        x[key] = value
-        assert x[key] == value
-        x[key] = value2
-        assert x[key] == value2
+        values = (
+            rbytes(),
+            rbytes() * 64,
+            rbytes(),
+            rbytes() * 32,
+            _
+        )
+        for value in values:
+            x[key] = value
+            assert x[key] == value
     
     # code.interact(local=dict(globals(), **locals()))
