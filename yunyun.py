@@ -801,11 +801,17 @@ class InstanceLockedShelve(Shelve):
 if __name__ == '__main__':
     import code, progressbar
     
-    with InstanceLockedShelve('test.yun') as x:
-        for _ in progressbar.progressbar(range(1024)):
-            key = os.urandom(8)
-            value = os.urandom(8)
-            x[key] = value
-            assert x[key] == value
+    def rbytes():
+        return os.urandom(os.urandom(1)[0])
+    
+    x = Shelve('test.yun')
+    for _ in progressbar.progressbar(range(1024)):
+        key = rbytes()
+        value = rbytes() * 64
+        value2 = rbytes()
+        x[key] = value
+        assert x[key] == value
+        x[key] = value2
+        assert x[key] == value2
     
     # code.interact(local=dict(globals(), **locals()))
