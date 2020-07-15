@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.8'
+__version__ = '0.0.9'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -675,33 +675,37 @@ class MultiblockHandler(Interface):
 
 class Shelve(MutableMapping):
     def __init__(self, *args, **kwargs):
-        self.mapping = MultiblockHandler(*args, **kwargs)
+        self._lock = threading.Lock()
         
-        if self.mapping._block_size < 96:
-            raise Exceptions.InvalidFormat(
-                'Shelve mapping block size must be at least 96 bytes.'
-            )
-        
-        self._key_node_name = self._hash_key(b'__KEYS__')
-        
-        with self.mapping.lock:
-            first = False
-            if not self.mapping.nodeExists(self._key_node_name):
-                self.mapping.makeNode(self._key_node_name)
-                first = True
+        with self._lock:
+            self.mapping = MultiblockHandler(*args, **kwargs)
             
-            self._ikeys = self.mapping.getHandle(self._key_node_name)
+            if self.mapping._block_size < 96:
+                raise Exceptions.InvalidFormat(
+                    'Shelve mapping block size must be at least 96 bytes.'
+                )
             
-            if first:
-                self._write_keys(set())
+            self._key_node_name = self._hash_key(b'__KEYS__')
+            
+            with self.mapping.lock:
+                first = False
+                if not self.mapping.nodeExists(self._key_node_name):
+                    self.mapping.makeNode(self._key_node_name)
+                    first = True
+                
+                self._ikeys = self.mapping.getHandle(self._key_node_name)
+                
+                if first:
+                    self._write_keys(set())
         
     def __getitem__(self, key):
-        with self.mapping.lock:
-            key = self._hash_key(pickle.dumps(key))
-            if not self.mapping.nodeExists(key):
-                raise KeyError(key)
-            
-            return pickle.loads(self.mapping.getHandle(key).read())
+        with self._lock:
+            with self.mapping.lock:
+                key = self._hash_key(pickle.dumps(key))
+                if not self.mapping.nodeExists(key):
+                    raise KeyError(key)
+                
+                return pickle.loads(self.mapping.getHandle(key).read())
         
     def _get_keys(self):
         with self.mapping.lock:
@@ -727,48 +731,52 @@ class Shelve(MutableMapping):
                 pass
         
     def __delitem__(self, key):
-        with self.mapping.lock:
-            kr = self._get_keys()
-            
-            if key not in kr:
-                raise Exceptions.NodeDoesNotExist('!RMNOD Key: {0}'.format(
-                    key.hex()
-                ))
+        with self._lock:
+            with self.mapping.lock:
+                kr = self._get_keys()
                 
-            kr.remove(key)
-            self._write_keys(kr)
-            
-            self._ikeys.seek(0)
-            self._ikeys.truncate(len(fin))
-            self._ikeys.write(fin)
-            
-            key = self._hash_key(pickle.dumps(key))
-            self.mapping.removeNode(key)
+                if key not in kr:
+                    raise Exceptions.NodeDoesNotExist('!RMNOD Key: {0}'.format(
+                        key.hex()
+                    ))
+                    
+                kr.remove(key)
+                self._write_keys(kr)
+                
+                self._ikeys.seek(0)
+                self._ikeys.truncate(len(fin))
+                self._ikeys.write(fin)
+                
+                key = self._hash_key(pickle.dumps(key))
+                self.mapping.removeNode(key)
         
     def __setitem__(self, key, value):
-        with self.mapping.lock:
-            kr = self._get_keys()
-            
-            kr.add(key)
-            self._write_keys(kr)
-            
-            key = self._hash_key(pickle.dumps(key))
-            if not self.mapping.nodeExists(key):
-                self.mapping.makeNode(key)
-            
-            handle = self.mapping.getHandle(key)
-            
-            pickval = pickle.dumps(value)
-            handle.truncate(len(pickval))
-            handle.write(pickval)
+        with self._lock:
+            with self.mapping.lock:
+                kr = self._get_keys()
+                
+                kr.add(key)
+                self._write_keys(kr)
+                
+                key = self._hash_key(pickle.dumps(key))
+                if not self.mapping.nodeExists(key):
+                    self.mapping.makeNode(key)
+                
+                handle = self.mapping.getHandle(key)
+                
+                pickval = pickle.dumps(value)
+                handle.truncate(len(pickval))
+                handle.write(pickval)
         
     def __iter__(self):
-        with self.mapping.lock:
-            return iter(self._get_keys())
+        with self._lock:
+            with self.mapping.lock:
+                return iter(self._get_keys())
             
     def __len__(self):
-        with self.mapping.lock:
-            return len(self._get_keys())
+        with self._lock:
+            with self.mapping.lock:
+                return len(self._get_keys())
         
     def _hash_key(self, key):
         return hashlib.sha256(key).digest()
