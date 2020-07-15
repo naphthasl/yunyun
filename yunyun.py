@@ -10,12 +10,13 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.7'
+__version__ = '0.0.8'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
     'MultiblockHandler',
-    'Shelve'
+    'Shelve',
+    'InstanceLockedShelve'
 ]
 
 import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
