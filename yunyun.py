@@ -221,11 +221,14 @@ class Interface(object):
                 ))
                 
                 for z in self.generateIndexPositions(index_pointer):
-                    read = allcells.read(self._index_cellsize)
-                    self.lock.cache['cells'][z] = (
-                        self.readIndexCell(read)
-                    )
-                    self.lock.cache['index_cell_translation'][z] = x[0]
+                    if z not in self.lock.cache['cells']:
+                        read = allcells.read(self._index_cellsize)
+                        self.lock.cache['cells'][z] = (
+                            self.readIndexCell(read)
+                        )
+                        self.lock.cache['index_cell_translation'][z] = x[0]
+                    else:
+                        allcells.seek(self._index_cellsize, 1)
                         
                 self.lock.cache['safe_indexes'].add(x[0])
                     
@@ -233,6 +236,11 @@ class Interface(object):
     
     def markCellModified(self, pos):
         with self.lock:
+            try:
+                del self.lock.cache['cells'][pos]
+            except KeyError:
+                pass
+                
             try:
                 self.lock.cache['safe_indexes'].remove(
                     self.lock.cache['index_cell_translation'][pos]
