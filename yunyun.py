@@ -704,8 +704,13 @@ class Shelve(MutableMapping):
         
     def _get_keys(self):
         with self.mapping.lock:
-            self._ikeys.seek(0)
-            return pickle.loads(lz4.frame.decompress(self._ikeys.read()))
+            if 'skeys' not in self.mapping.lock.cache:
+                self._ikeys.seek(0)
+                self.mapping.lock.cache['skeys'] = pickle.loads(
+                    lz4.frame.decompress(self._ikeys.read())
+                )
+            
+            return self.mapping.lock.cache['skeys']
             
     def _write_keys(self, kr):
         with self.mapping.lock:
@@ -714,6 +719,11 @@ class Shelve(MutableMapping):
             self._ikeys.seek(0)
             self._ikeys.truncate(len(fin))
             self._ikeys.write(fin)
+            
+            try:
+                del self.mapping.lock.cache['skeys']
+            except KeyError:
+                pass
         
     def __delitem__(self, key):
         with self.mapping.lock:
