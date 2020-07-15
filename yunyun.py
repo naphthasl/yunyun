@@ -214,22 +214,21 @@ class Interface(object):
                     continue
                 
                 index_pointer = x[0] + self._index_headersize
-                positions = self.generateIndexPositions(index_pointer)
-                
-                if not all(
-                    item in self.lock.cache['cells'] for item in positions):
-                    f.seek(index_pointer)
-                        
-                    allcells = io.BytesIO(f.read(
-                        self._indexes * self._index_cellsize
-                    ))
+                f.seek(index_pointer)
                     
-                    for z in positions:
+                allcells = io.BytesIO(f.read(
+                    self._indexes * self._index_cellsize
+                ))
+                
+                for z in self.generateIndexPositions(index_pointer):
+                    if z not in self.lock.cache['cells']:
                         read = allcells.read(self._index_cellsize)
                         self.lock.cache['cells'][z] = (
                             self.readIndexCell(read)
                         )
                         self.lock.cache['index_cell_translation'][z] = x[0]
+                    else:
+                        allcells.seek(self._index_cellsize, 1)
                         
                 self.lock.cache['safe_indexes'].add(x[0])
                     
@@ -693,7 +692,7 @@ class Shelve(MutableMapping):
             self._ikeys = self.mapping.getHandle(self._key_node_name)
             
             if first:
-                self._write_keys([])
+                self._write_keys(set())
         
     def __getitem__(self, key):
         with self.mapping.lock:
@@ -739,8 +738,7 @@ class Shelve(MutableMapping):
         with self.mapping.lock:
             kr = self._get_keys()
             
-            if key not in kr:
-                kr.append(key)
+            kr.add(key)
             self._write_keys(kr)
             
             key = self._hash_key(pickle.dumps(key))
