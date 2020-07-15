@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.9'
+__version__ = '0.0.10'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -55,19 +55,16 @@ class AtomicCachingFileLock(FileLock):
         self._original_path = args[0]
         args = list(args)
         args[0] += '.lock'
-        self._super_thread_lock = threading.Lock()
         super().__init__(*args, **kwargs)
         self.reset_cache()
         self.handle = None
         
     def _acquire(self, *args, **kwargs):
-        self._super_thread_lock.acquire()
         super()._acquire(*args, **kwargs)
         self.reset_cache()
         self.handle = open(self._original_path, 'rb+')
         
     def _release(self, *args, **kwargs):
-        self._super_thread_lock.release()
         super()._release(*args, **kwargs)
         self.reset_cache()
         self.handle.close()
