@@ -47,6 +47,8 @@ class AtomicCachingFileLock(FileLock):
     def reset_cache(self):
         self.cache = {}
         self.cache['cells'] = {}
+        self.cache['index_cell_translation'] = {}
+        self.cache['safe_indexes'] = set()
     
     def __init__(self, *args, **kwargs):
         self._original_path = args[0]
@@ -208,6 +210,9 @@ class Interface(object):
                 
             f = self.lock.handle
             for x in indexes:
+                if x[0] in self.lock.cache['safe_indexes']:
+                    continue
+                
                 index_pointer = x[0] + self._index_headersize
                 positions = self.generateIndexPositions(index_pointer)
                 
@@ -224,6 +229,9 @@ class Interface(object):
                         self.lock.cache['cells'][z] = (
                             self.readIndexCell(read)
                         )
+                        self.lock.cache['index_cell_translation'][z] = x[0]
+                        
+                self.lock.cache['safe_indexes'].add(x[0])
                     
         return self.lock.cache['cells']
     
@@ -231,6 +239,13 @@ class Interface(object):
         with self.lock:
             try:
                 del self.lock.cache['cells'][pos]
+            except KeyError:
+                pass
+                
+            try:
+                self.lock.cache['safe_indexes'].remove(
+                    self.lock.cache['index_cell_translation'][pos]
+                )
             except KeyError:
                 pass
     
