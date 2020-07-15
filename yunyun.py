@@ -812,7 +812,12 @@ if __name__ == '__main__':
             rbytes() * 64,
             rbytes(),
             rbytes() * 32,
-            _
+            _,
+            None,
+            True,
+            False,
+            0,
+            1
         )
         for value in values:
             x[key] = value
