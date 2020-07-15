@@ -227,6 +227,13 @@ class Interface(object):
                     
         return self.lock.cache['cells']
     
+    def markCellModified(self, pos):
+        with self.lock:
+            try:
+                del self.lock.cache['cells'][pos]
+            except KeyError:
+                pass
+    
     def createIndex(self):
         with self.lock:
             indexes = self.getIndexes()
@@ -313,11 +320,8 @@ class Interface(object):
                     cell[4]
                 ))
                 
-                try:
-                    del self.lock.cache['cells'][key_exists]
-                except KeyError:
-                    pass
-
+                self.markCellModified(key_exists)
+                
             valhash = xxhash.xxh64(value).intdigest()
 
             f.seek(key_exists)
@@ -335,10 +339,7 @@ class Interface(object):
                 valhash
             ))
             
-            try:
-                del self.lock.cache['cells'][key_exists]
-            except KeyError:
-                pass
+            self.markCellModified(key_exists)
             
             f.seek(cell[2])
             f.write(value)
@@ -360,10 +361,7 @@ class Interface(object):
                     cell[4]
                 ))
                 
-                try:
-                    del self.lock.cache['cells'][key_exists]
-                except KeyError:
-                    pass
+                self.markCellModified(key_exists)
             else:
                 raise Exceptions.BlockNotFound('!DELT Key: {0}'.format(
                     key.hex()
@@ -392,10 +390,7 @@ class Interface(object):
                     cell[4]
                 ))
                 
-                try:
-                    del self.lock.cache['cells'][key_exists]
-                except KeyError:
-                    pass
+                self.markCellModified(key_exists)
             else:
                 raise Exceptions.BlockNotFound('!RENM Key: {0}'.format(
                     key.hex()
