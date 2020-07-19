@@ -22,7 +22,7 @@ __all__ = [
 import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
 import lz4.frame
 
-from filelock import Timeout, FileLock, SoftFileLock
+from filelock import FileLock
 from collections.abc import MutableMapping
 
 class Exceptions(object):
@@ -286,7 +286,6 @@ class Interface(object):
                
     def requestFreeIndexCell(self):
         with self.lock:
-            ret = None
             while True:
                 for k, v in self.getIndexesCells().items():
                     if (v[0] == False):
@@ -740,10 +739,6 @@ class Shelve(MutableMapping):
                 kr.remove(key)
                 self._write_keys(kr)
                 
-                self._ikeys.seek(0)
-                self._ikeys.truncate(len(fin))
-                self._ikeys.write(fin)
-                
                 key = self._hash_key(pickle.dumps(key))
                 self.mapping.removeNode(key)
         
@@ -804,7 +799,7 @@ class InstanceLockedShelve(Shelve):
         self.mapping.lock.release()
 
 if __name__ == '__main__':
-    import code, progressbar
+    import progressbar
     
     def rbytes():
         return os.urandom(os.urandom(1)[0])
