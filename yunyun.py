@@ -919,21 +919,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     
     FILENAME = '/tmp/test.yun'
-    TEST_VALUES = (
-        os.urandom(1),
-        os.urandom(2),
-        os.urandom(4),
-        os.urandom(8),
-        os.urandom(16),
-        os.urandom(32),
-        os.urandom(64),
-        os.urandom(128),
-        os.urandom(256),
-        os.urandom(512),
-        os.urandom(1024),
-        os.urandom(2048),
-        os.urandom(4096)
-    )
+    TEST_VALUES = [os.urandom(2 ** x) for x in range(16)]
         
     def pulverise_original():
         try:
