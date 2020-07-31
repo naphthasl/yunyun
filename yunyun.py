@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.12'
+__version__ = '0.0.13'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -810,44 +810,43 @@ class Shelve(MutableMapping):
                 return pickle.loads(self.mapping.getHandle(key).read())
         
     def _get_keys(self):
-        if self.trackkeys:
-            with self.mapping.lock:
-                if 'skeys' not in self.mapping.lock.cache:
-                    self._ikeys.seek(0)
-                    self.mapping.lock.cache['skeys'] = pickle.loads(
-                        lz4.frame.decompress(self._ikeys.read())
-                    )
-                
-                return self.mapping.lock.cache['skeys']
-        else:
-            return set()
+        with self.mapping.lock:
+            if 'skeys' not in self.mapping.lock.cache:
+                self._ikeys.seek(0)
+                self.mapping.lock.cache['skeys'] = pickle.loads(
+                    lz4.frame.decompress(self._ikeys.read())
+                )
+            
+            return self.mapping.lock.cache['skeys']
             
     def _write_keys(self, kr):
-        if self.trackkeys:
-            with self.mapping.lock:
-                fin = lz4.frame.compress(pickle.dumps(kr))
-                
-                self._ikeys.seek(0)
-                self._ikeys.truncate(len(fin))
-                self._ikeys.write(fin)
-                
-                try:
-                    del self.mapping.lock.cache['skeys']
-                except KeyError:
-                    pass
+        with self.mapping.lock:
+            fin = lz4.frame.compress(pickle.dumps(kr))
+            
+            self._ikeys.seek(0)
+            self._ikeys.truncate(len(fin))
+            self._ikeys.write(fin)
+            
+            try:
+                del self.mapping.lock.cache['skeys']
+            except KeyError:
+                pass
         
     def __delitem__(self, key):
         with self._lock:
             with self.mapping.lock:
-                kr = self._get_keys()
-                
-                if key not in kr:
-                    raise Exceptions.NodeDoesNotExist('!RMNOD Key: {0}'.format(
-                        key.hex()
-                    ))
+                if self.trackkeys:
+                    kr = self._get_keys()
                     
-                kr.remove(key)
-                self._write_keys(kr)
+                    if key not in kr:
+                        raise Exceptions.NodeDoesNotExist(
+                            '!RMNOD Key: {0}'.format(
+                                key.hex()
+                            )
+                        )
+                        
+                    kr.remove(key)
+                    self._write_keys(kr)
                 
                 key = self._hash_key(pickle.dumps(key))
                 self.mapping.removeNode(key)
@@ -855,10 +854,11 @@ class Shelve(MutableMapping):
     def __setitem__(self, key, value):
         with self._lock:
             with self.mapping.lock:
-                kr = self._get_keys()
-                
-                kr.add(key)
-                self._write_keys(kr)
+                if self.trackkeys:
+                    kr = self._get_keys()
+                    
+                    kr.add(key)
+                    self._write_keys(kr)
                 
                 key = self._hash_key(pickle.dumps(key))
                 if not self.mapping.nodeExists(key):
@@ -871,14 +871,20 @@ class Shelve(MutableMapping):
                 handle.write(pickval)
         
     def __iter__(self):
-        with self._lock:
-            with self.mapping.lock:
-                return iter(self._get_keys())
+        if self.trackkeys:
+            with self._lock:
+                with self.mapping.lock:
+                    return iter(self._get_keys())
+        else:
+            return None
             
     def __len__(self):
-        with self._lock:
-            with self.mapping.lock:
-                return len(self._get_keys())
+        if self.trackkeys:
+            with self._lock:
+                with self.mapping.lock:
+                    return len(self._get_keys())
+        else:
+            return None
         
     def _hash_key(self, key):
         return hashlib.sha256(key).digest()
@@ -913,9 +919,21 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     
     FILENAME = '/tmp/test.yun'
-    
-    def rbytes():
-        return os.urandom(os.urandom(1)[0])
+    TEST_VALUES = (
+        os.urandom(1),
+        os.urandom(2),
+        os.urandom(4),
+        os.urandom(8),
+        os.urandom(16),
+        os.urandom(32),
+        os.urandom(64),
+        os.urandom(128),
+        os.urandom(256),
+        os.urandom(512),
+        os.urandom(1024),
+        os.urandom(2048),
+        os.urandom(4096)
+    )
         
     def pulverise_original():
         try:
@@ -929,22 +947,10 @@ if __name__ == '__main__':
         times = []
         
         for _ in progressbar.progressbar(indexes):
-            key = rbytes()
-            values = (
-                rbytes(),
-                rbytes() * 64,
-                rbytes(),
-                rbytes() * 32,
-                _,
-                None,
-                True,
-                False,
-                0,
-                1
-            )
+            key = os.urandom(8)
             
             start = time.time()
-            for value in values:
+            for value in TEST_VALUES:
                 x[key] = value
                 assert x[key] == value
             end = (time.time() - start) * 1000
