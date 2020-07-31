@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.13'
+__version__ = '0.0.14'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
-import lz4.frame, time, random
+import zlib, time, random
 
 from filelock import FileLock
 from collections.abc import MutableMapping
@@ -814,14 +814,14 @@ class Shelve(MutableMapping):
             if 'skeys' not in self.mapping.lock.cache:
                 self._ikeys.seek(0)
                 self.mapping.lock.cache['skeys'] = pickle.loads(
-                    lz4.frame.decompress(self._ikeys.read())
+                    zlib.decompress(self._ikeys.read())
                 )
             
             return self.mapping.lock.cache['skeys']
             
     def _write_keys(self, kr):
         with self.mapping.lock:
-            fin = lz4.frame.compress(pickle.dumps(kr))
+            fin = zlib.compress(pickle.dumps(kr))
             
             self._ikeys.seek(0)
             self._ikeys.truncate(len(fin))
