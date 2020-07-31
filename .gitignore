@@ -136,3 +136,7 @@ dmypy.json
 *.ydb
 *.yun
 *.lock
+
+# Line profiler
+*.lprof
+*.prof

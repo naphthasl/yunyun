@@ -274,6 +274,10 @@ class Interface(object):
         ]
     
     def getIndexesCells(self):
+        # TODO: This function is absolutely awful. I did my best to optimize
+        # it, but it's still an extremely intensive function to run. It's just
+        # super difficult.
+        
         with self.lock:
             indexes = self.getIndexes()
                 
