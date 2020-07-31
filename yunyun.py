@@ -125,6 +125,7 @@ class AtomicCachingFileLock(FileLock):
         self._original_path = args[0]
         args = list(args)
         args[0] += '.lock'
+        self.lockfile = args[0]
         super().__init__(*args, **kwargs)
         self.reset_cache()
         self.handle = None
