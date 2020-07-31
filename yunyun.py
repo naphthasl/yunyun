@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.15'
+__version__ = '0.0.16'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
