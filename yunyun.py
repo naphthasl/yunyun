@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.16'
+__version__ = '0.1.0'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
-import zlib, time, random
+import zlib, time, random, tempfile
 
 from filelock import FileLock
 from collections.abc import MutableMapping
@@ -121,23 +121,72 @@ class AtomicCachingFileLock(FileLock):
         self.cache['index_cell_translation'] = {}
         self.cache['safe_indexes'] = set()
     
+    def _cap32(self, i):
+        return i & ((2 ** 32) - 1)
+    
+    def _session(self):
+        return struct.pack('<III',
+            self._cap32(threading.get_ident()),
+            self._cap32(os.getpid()),
+            self._cap32(round(time.time() / 3600))
+        ) + self.id
+    
+    def _write_session(self):
+        with open(self.pidfile, 'wb') as sf:
+            sf.write(self._session())
+            
+    def _same_session(self):
+        if not os.path.isfile(self.pidfile):
+            self._write_session()
+            
+            return True
+            
+        with open(self.pidfile, 'rb') as sf:
+            if sf.read() == self._session():
+                return True
+            else:
+                return False
+    
+    def _templk(self, i):
+        return os.path.join(
+            tempfile.gettempdir(), 
+            xxhash.xxh64(i).hexdigest() + '.ylf'
+        )
+    
     def __init__(self, *args, **kwargs):
-        self._original_path = args[0]
         args = list(args)
-        args[0] += '.lock'
-        self.lockfile = args[0]
+        
+        self.id = os.urandom(4)
+        
+        self._original_path = args[0]
+        
+        self.lockfile = self._templk(self._original_path + '.lock')
+        self.pidfile = self._templk(self._original_path + '.pid')
+        
+        args[0] = self.lockfile
         super().__init__(*args, **kwargs)
+        
         self.reset_cache()
+        
         self.handle = None
+        
+    def acquire(self, *args, **kwargs):
+        x = super().acquire(*args, **kwargs)
+        
+        if not self._same_session():
+            self.reset_cache()
+            self._write_session()
+            
+        return x
         
     def _acquire(self, *args, **kwargs):
         super()._acquire(*args, **kwargs)
-        self.reset_cache()
+        
         self.handle = open(self._original_path, 'rb+')
         
     def _release(self, *args, **kwargs):
         super()._release(*args, **kwargs)
-        self.reset_cache()
+        
         self.handle.close()
 
 class Interface(object):
@@ -912,7 +961,13 @@ class InstanceLockedShelve(Shelve):
         return self
         
     def __exit__(self, *args, **kwargs):
-        self.mapping.lock.release()
+        self.mapping.lock.release(force = True)
+        
+    def __del__(self, *args, **kwargs):
+        try:
+            self.mapping.lock.release(force = True)
+        except:
+            pass
 
 if __name__ == '__main__':
     import progressbar
@@ -924,7 +979,6 @@ if __name__ == '__main__':
     def pulverise_original():
         try:
             os.remove(FILENAME)
-            os.remove(FILENAME + '.lock')
         except:
             pass
         
