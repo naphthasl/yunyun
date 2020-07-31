@@ -45,7 +45,7 @@ class Exceptions(object):
         pass
 
 class RRCCache(object):
-    def __init__(self, size = 4096):
+    def __init__(self, size = 8192):
         self.size = size
         self.foward_mapping = {}
         self.backward_mapping = {}
@@ -289,13 +289,13 @@ class Interface(object):
                 
                 positions = self.generateIndexPositions(index_pointer)
                 
-                cells = dict(map(lambda z: (
+                cells = map(lambda z: (
                     z,
                     self.readIndexCell(f.read(self._index_cellsize))
-                ), positions))
+                ), positions)
                 self.lock.cache['cells'].update(cells)
                 
-                translations = dict(map(lambda z: (z, x[0]), positions))
+                translations = map(lambda z: (z, x[0]), positions)
                 self.lock.cache['index_cell_translation'].update(translations)   
                 
                 self.lock.cache['safe_indexes'].add(x[0])
