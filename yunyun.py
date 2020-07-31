@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.11'
+__version__ = '0.0.12'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
-import lz4.frame
+import lz4.frame, time, random
 
 from filelock import FileLock
 from collections.abc import MutableMapping
@@ -44,10 +44,80 @@ class Exceptions(object):
     class InvalidFormat(Exception):
         pass
 
+class RRCCache(object):
+    def __init__(self, size = 4096):
+        self.size = size
+        self.foward_mapping = {}
+        self.backward_mapping = {}
+        
+    def set(self, key, value):
+        self.foward_mapping[key] = value
+        self.backward_mapping[value] = key
+        
+    def has(self, key):
+        return (key in self.foward_mapping)
+        
+    def keys(self):
+        return self.foward_mapping.keys()
+        
+    def get(self, key):
+        return self.foward_mapping[key]
+        
+    def get_key(self, value):
+        return self.backward_mapping[value]
+        
+    def remove(self, key):
+        del self.backward_mapping[self.foward_mapping[key]]
+        del self.foward_mapping[key]
+        
+    def random_key(self):
+        return random.choice(self.backward_mapping)
+        
+    def check_full(self):
+        if len(self.foward_mapping) > self.size:
+            self.push_out()
+            
+    def push_out(self):
+        self.remove(self.random_key())
+        
+    def length(self):
+        return len(self.foward_mapping)
+
+class ArbRemovalCache(RRCCache):
+    def push_out(self):
+        # Only works on very latest versions of Python
+        self.foward_mapping.popitem()
+        self.backward_mapping.popitem()
+
+class OrderedRemovalCache(RRCCache):
+    def push_out(self):
+        self.remove(list(self.keys())[0])
+
+class CacheDict(MutableMapping):
+    def __init__(self, cache, *args, **kwargs):
+        self.mapping = cache(*args, **kwargs)
+        
+    def __getitem__(self, key):
+        return self.mapping.get(key)
+        
+    def __delitem__(self, key):
+        self.mapping.remove(key)
+        
+    def __setitem__(self, key, value):
+        self.mapping.set(key, value)
+        
+    def __iter__(self):
+        return iter(self.mapping.keys())
+            
+    def __len__(self):
+        return self.mapping.length()
+
 class AtomicCachingFileLock(FileLock):
     def reset_cache(self):
         self.cache = {}
         self.cache['cells'] = {}
+        self.cache['keypos'] = RRCCache()
+        self.cache['blocks'] = CacheDict(RRCCache)
         self.cache['index_cell_translation'] = {}
         self.cache['safe_indexes'] = set()
     
@@ -235,6 +305,13 @@ class Interface(object):
     def markCellModified(self, pos):
         with self.lock:
             try:
+                self.lock.cache['keypos'].remove(
+                    self.lock.cache['keypos'].get_key(pos)
+                )
+            except KeyError:
+                pass
+            
+            try:
                 del self.lock.cache['cells'][pos]
             except KeyError:
                 pass
@@ -275,21 +352,29 @@ class Interface(object):
               
     def keyExists(self, key: bytes):
         with self.lock:
+            if self.lock.cache['keypos'].has(key):
+                return self.lock.cache['keypos'].get(key)
+            
             hkey = xxhash.xxh64(key).intdigest()
+            
+            vlt = 0
             for k, v in self.getIndexesCells().items():
                 if (v[1] == hkey
                     and v[0] == True):
                         
-                    return k
+                    vlt = k
                     
-            return 0
+                    break
+            
+            self.lock.cache['keypos'].set(key, vlt)
+            
+            return vlt
                
     def requestFreeIndexCell(self):
         with self.lock:
             while True:
                 for k, v in self.getIndexesCells().items():
                     if (v[0] == False):
-                            
                         return k
                         
                 self.createIndex()
@@ -308,17 +393,19 @@ class Interface(object):
             key_exists = self.keyExists(key)
             if not key_exists:
                 key_exists = self.requestFreeIndexCell()
+                self.lock.cache['keypos'].remove(key)
                 
                 f.seek(key_exists)
                 cell = self.readIndexCell(f.read(self._index_cellsize))
                 
+                blank = b'\x00' * self._block_size
                 if cell[2] == 0:
                     f.seek(0, 2)
                     location = f.tell()
                     if hard:
-                        f.write(b'\x00' * self._block_size)
+                        f.write(blank)
                     else:
-                        f.truncate(location + self._block_size)
+                        f.truncate(location + len(blank))
                 else:
                     location = cell[2]
                 
@@ -332,6 +419,7 @@ class Interface(object):
                 ))
                 
                 self.markCellModified(key_exists)
+                self.setBlockCacheNewValue(key, blank)
                 
             valhash = xxhash.xxh64(value).intdigest()
 
@@ -351,6 +439,7 @@ class Interface(object):
             ))
             
             self.markCellModified(key_exists)
+            self.setBlockCacheNewValue(key, value)
             
             f.seek(cell[2])
             f.write(value)
@@ -373,6 +462,7 @@ class Interface(object):
                 ))
                 
                 self.markCellModified(key_exists)
+                self.invalidateBlockCacheKey(key)
             else:
                 raise Exceptions.BlockNotFound('!DELT Key: {0}'.format(
                     key.hex()
@@ -402,13 +492,27 @@ class Interface(object):
                 ))
                 
                 self.markCellModified(key_exists)
+                self.invalidateBlockCacheKey(key)
             else:
                 raise Exceptions.BlockNotFound('!RENM Key: {0}'.format(
                     key.hex()
                 ))
+              
+    def invalidateBlockCacheKey(self, key):
+        with self.lock:
+            try:
+                del self.lock.cache['blocks'][key]
+            except KeyError:
+                pass
+            
+    def setBlockCacheNewValue(self, key, value):
+        self.lock.cache['blocks'][key] = value
                     
     def readBlock(self, key: bytes):
         with self.lock:
+            if key in self.lock.cache['blocks']:
+                return self.lock.cache['blocks'][key]
+            
             f = self.lock.handle
             key_exists = self.keyExists(key)
             if key_exists:
@@ -416,7 +520,8 @@ class Interface(object):
                 cell = self.readIndexCell(f.read(self._index_cellsize))
                 
                 f.seek(cell[2])
-                return f.read(cell[3])
+                self.setBlockCacheNewValue(key, f.read(cell[3]))
+                return self.lock.cache['blocks'][key]
             else:
                 raise Exceptions.BlockNotFound('!READ Key: {0}'.format(
                     key.hex()
@@ -672,6 +777,7 @@ class MultiblockHandler(Interface):
 class Shelve(MutableMapping):
     def __init__(self, *args, **kwargs):
         self._lock = threading.Lock()
+        self.trackkeys = True
         
         with self._lock:
             self.mapping = MultiblockHandler(*args, **kwargs)
@@ -704,27 +810,31 @@ class Shelve(MutableMapping):
                 return pickle.loads(self.mapping.getHandle(key).read())
         
     def _get_keys(self):
-        with self.mapping.lock:
-            if 'skeys' not in self.mapping.lock.cache:
-                self._ikeys.seek(0)
-                self.mapping.lock.cache['skeys'] = pickle.loads(
-                    lz4.frame.decompress(self._ikeys.read())
-                )
-            
-            return self.mapping.lock.cache['skeys']
+        if self.trackkeys:
+            with self.mapping.lock:
+                if 'skeys' not in self.mapping.lock.cache:
+                    self._ikeys.seek(0)
+                    self.mapping.lock.cache['skeys'] = pickle.loads(
+                        lz4.frame.decompress(self._ikeys.read())
+                    )
+                
+                return self.mapping.lock.cache['skeys']
+        else:
+            return set()
             
     def _write_keys(self, kr):
-        with self.mapping.lock:
-            fin = lz4.frame.compress(pickle.dumps(kr))
-            
-            self._ikeys.seek(0)
-            self._ikeys.truncate(len(fin))
-            self._ikeys.write(fin)
-            
-            try:
-                del self.mapping.lock.cache['skeys']
-            except KeyError:
-                pass
+        if self.trackkeys:
+            with self.mapping.lock:
+                fin = lz4.frame.compress(pickle.dumps(kr))
+                
+                self._ikeys.seek(0)
+                self._ikeys.truncate(len(fin))
+                self._ikeys.write(fin)
+                
+                try:
+                    del self.mapping.lock.cache['skeys']
+                except KeyError:
+                    pass
         
     def __delitem__(self, key):
         with self._lock:
@@ -800,27 +910,73 @@ class InstanceLockedShelve(Shelve):
 
 if __name__ == '__main__':
     import progressbar
+    import matplotlib.pyplot as plt
+    
+    FILENAME = '/tmp/test.yun'
     
     def rbytes():
         return os.urandom(os.urandom(1)[0])
+        
+    def pulverise_original():
+        try:
+            os.remove(FILENAME)
+            os.remove(FILENAME + '.lock')
+        except:
+            pass
+        
+    def test(x, dotimes):
+        indexes = list(range(dotimes))
+        times = []
+        
+        for _ in progressbar.progressbar(indexes):
+            key = rbytes()
+            values = (
+                rbytes(),
+                rbytes() * 64,
+                rbytes(),
+                rbytes() * 32,
+                _,
+                None,
+                True,
+                False,
+                0,
+                1
+            )
+            
+            start = time.time()
+            for value in values:
+                x[key] = value
+                assert x[key] == value
+            end = (time.time() - start) * 1000
+            times.append(end)
+            
+        return indexes, times
     
-    x = Shelve('test.yun')
-    for _ in progressbar.progressbar(range(1024)):
-        key = rbytes()
-        values = (
-            rbytes(),
-            rbytes() * 64,
-            rbytes(),
-            rbytes() * 32,
-            _,
-            None,
-            True,
-            False,
-            0,
-            1
-        )
-        for value in values:
-            x[key] = value
-            assert x[key] == value
+    fig, ax = plt.subplots()
+    
+    pulverise_original()
+    sobj = Shelve(FILENAME)
+    sobj.trackkeys = False
+    ax.plot(*test(sobj, 1024), label='keyless_cooperative')
+    
+    pulverise_original()
+    sobj = Shelve(FILENAME)
+    ax.plot(*test(sobj, 1024), label='cooperative')
+    
+    pulverise_original()
+    with InstanceLockedShelve(FILENAME) as sobj:
+        ax.plot(*test(sobj, 1024), label='lockhogger')
+        
+    pulverise_original()
+    with InstanceLockedShelve(FILENAME) as sobj:
+        sobj.trackkeys = False
+        ax.plot(*test(sobj, 1024), label='keyless_lockhogger')
+    
+    ax.set_xlabel('Created Indexes in Database')
+    ax.set_ylabel('Time to complete a multi-SET/GET round (ms)')
+    ax.legend()
+    plt.show()
+    
+    pulverise_original()
     
     # code.interact(local=dict(globals(), **locals()))
