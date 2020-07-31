@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.0.14'
+__version__ = '0.0.15'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -220,14 +220,12 @@ class Interface(object):
             data
         )
         
-    @functools.lru_cache(maxsize=_cache_size)
     def readIndexHeader(self, index: bytes):
         return struct.unpack(
             self._index_header_pattern,
             index[len(self._identity_header):]
         )
     
-    @functools.lru_cache(maxsize=_cache_size)
     def readIndexCell(self, cell: bytes):
         return struct.unpack(
             self._index_cell_pattern,
@@ -288,21 +286,18 @@ class Interface(object):
                 
                 index_pointer = x[0] + self._index_headersize
                 f.seek(index_pointer)
-                    
-                allcells = io.BytesIO(f.read(
-                    self._indexes * self._index_cellsize
-                ))
                 
-                for z in self.generateIndexPositions(index_pointer):
-                    if z not in self.lock.cache['cells']:
-                        read = allcells.read(self._index_cellsize)
-                        self.lock.cache['cells'][z] = (
-                            self.readIndexCell(read)
-                        )
-                        self.lock.cache['index_cell_translation'][z] = x[0]
-                    else:
-                        allcells.seek(self._index_cellsize, 1)
-                        
+                positions = self.generateIndexPositions(index_pointer)
+                
+                cells = dict(map(lambda z: (
+                    z,
+                    self.readIndexCell(f.read(self._index_cellsize))
+                ), positions))
+                self.lock.cache['cells'].update(cells)
+                
+                translations = dict(map(lambda z: (z, x[0]), positions))
+                self.lock.cache['index_cell_translation'].update(translations)   
+                
                 self.lock.cache['safe_indexes'].add(x[0])
                     
         return self.lock.cache['cells']
