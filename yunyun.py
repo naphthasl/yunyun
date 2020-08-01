@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -407,7 +407,14 @@ class Interface(object):
             hkey = xxhash.xxh64(key).intdigest()
             
             vlt = 0
-            for k, v in reversed(self.getIndexesCells().items()):
+            
+            # Pypy support
+            try:
+                cells = reversed(self.getIndexesCells().items())
+            except TypeError:
+                cells = self.getIndexesCells().items()
+            
+            for k, v in cells:
                 if (v[1] == hkey and v[0] == True):
                     vlt = k
                     
