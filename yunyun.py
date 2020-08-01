@@ -407,10 +407,8 @@ class Interface(object):
             hkey = xxhash.xxh64(key).intdigest()
             
             vlt = 0
-            for k, v in self.getIndexesCells().items():
-                if (v[1] == hkey
-                    and v[0] == True):
-                        
+            for k, v in reversed(self.getIndexesCells().items()):
+                if (v[1] == hkey and v[0] == True):
                     vlt = k
                     
                     break
