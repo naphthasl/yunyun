@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.2.3'
+__version__ = '0.2.4'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -125,19 +125,32 @@ class AtomicCachingFileLock(FileLock):
         return i & ((2 ** 32) - 1)
     
     def _session(self):
+        # It would be nice if this was permanent, but thanks to the thread ID,
+        # it can't be.
         return struct.pack('<III',
             self._cap32(threading.get_ident()),
             self._cap32(os.getpid()),
             self._cap32(round(time.time() / 3600))
         ) + self.id
     
+    def _check_avail(self) -> bool:
+        if not self._av:
+            if os.path.getsize(self._original_path) != 0:
+                self._av = True
+                
+                return True
+            else:
+                return False
+        else:
+            return True
+    
     def _write_session(self):
-        if os.path.getsize(self._original_path) != 0:
+        if self._check_avail():
             self.handle.seek(0)
             self.handle.write(self._session())
             
-    def _same_session(self):
-        if os.path.getsize(self._original_path) != 0:
+    def _same_session(self) -> bool:
+        if self._check_avail():
             self.handle.seek(0)
             cses = self._session()
             if self.handle.read(len(cses)) == cses:
@@ -150,10 +163,12 @@ class AtomicCachingFileLock(FileLock):
     def _templk(self, i):
         return os.path.join(
             tempfile.gettempdir(), 
-            xxhash.xxh64(i).hexdigest() + '.ylf'
+            xxhash.xxh64(i).hexdigest().upper() + '.YLF'
         )
     
     def __init__(self, *args, **kwargs):
+        self._av = False
+        
         args = list(args)
         
         self.id = os.urandom(4)
