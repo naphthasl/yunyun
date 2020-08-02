@@ -996,11 +996,13 @@ if __name__ == '__main__':
         for _ in progressbar.progressbar(indexes):
             key = os.urandom(8)
             
-            start = time.time()
+            start = time.perf_counter()
+            operations = 0
             for value in TEST_VALUES:
                 x[key] = value
                 assert x[key] == value
-            end = (time.time() - start) * 1000
+                operations += 2
+            end = ((time.perf_counter() - start) / operations) * 1000
             times.append(end)
             
         return indexes, times
@@ -1026,7 +1028,7 @@ if __name__ == '__main__':
         ax.plot(*test(sobj, 1024), label='keyless_lockhogger')
     
     ax.set_xlabel('Created Indexes in Database')
-    ax.set_ylabel('Time to complete a multi-SET/GET round (ms)')
+    ax.set_ylabel('Time to perform a single database operation (milliseconds)')
     ax.legend()
     plt.show()
     
