@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -887,16 +887,22 @@ class Shelve(MutableMapping):
             
     def _write_keys(self, kr):
         with self.mapping.lock:
-            fin = zlib.compress(pickle.dumps(kr))
-            
-            self._ikeys.seek(0)
-            self._ikeys.truncate(len(fin))
-            self._ikeys.write(fin)
-            
             try:
-                del self.mapping.lock.cache['skeys']
+                kro = self.mapping.lock.cache['skeys']
             except KeyError:
-                pass
+                kro = None
+                
+            if kr != kro:
+                fin = zlib.compress(pickle.dumps(kr))
+                
+                self._ikeys.seek(0)
+                self._ikeys.truncate(len(fin))
+                self._ikeys.write(fin)
+                
+                try:
+                    del self.mapping.lock.cache['skeys']
+                except KeyError:
+                    pass
         
     def __delitem__(self, key):
         with self._lock:
