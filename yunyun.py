@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -189,7 +189,7 @@ class AtomicCachingFileLock(FileLock):
 class Interface(object):
     _index_header_pattern = '<?xxxIHH'  # 12 bytes
     _index_cell_pattern   = '<?xQIHQ'   # 24 bytes
-    _yunyun_header        = b'YUNYUN00' # 8  bytes
+    _yunyun_header        = b'YUNYUN01' # 8  bytes
     _identity_header      = _yunyun_header.rjust(len(_yunyun_header)+16, b'#')
     _cache_size           = 4096
     
@@ -651,10 +651,20 @@ class MultiblockHandler(Interface):
                 ))
         
     def _getNodeProperties(self, key: bytes) -> dict:
-        return pickle.loads(self.readBlock(key))
+        op = self.readBlock(key)
+        blocks, size = struct.unpack('<II', op[:8])
+        
+        return {
+            'key': op[8:],
+            'blocks': blocks,
+            'size': size
+        }
     
     def _setNodeProperties(self, key: bytes, properties: dict):
-        self.writeBlock(key, pickle.dumps(properties))
+        self.writeBlock(key, struct.pack('<II',
+            properties['blocks'],
+            properties['size']
+        ) + properties['key'])
 
     class MultiblockFileHandle(object):
         def __init__(self, interface, key: bytes):
