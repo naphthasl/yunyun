@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.1.2'
+__version__ = '0.2.0'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -132,20 +132,20 @@ class AtomicCachingFileLock(FileLock):
         ) + self.id
     
     def _write_session(self):
-        with open(self.pidfile, 'wb') as sf:
-            sf.write(self._session())
+        if os.path.getsize(self._original_path) != 0:
+            self.handle.seek(0)
+            self.handle.write(self._session())
             
     def _same_session(self):
-        if not os.path.isfile(self.pidfile):
-            self._write_session()
-            
-            return True
-            
-        with open(self.pidfile, 'rb') as sf:
-            if sf.read() == self._session():
+        if os.path.getsize(self._original_path) != 0:
+            self.handle.seek(0)
+            cses = self._session()
+            if self.handle.read(len(cses)) == cses:
                 return True
             else:
                 return False
+        else:
+            return False
     
     def _templk(self, i):
         return os.path.join(
@@ -161,7 +161,6 @@ class AtomicCachingFileLock(FileLock):
         self._original_path = args[0]
         
         self.lockfile = self._templk(self._original_path + '.lock')
-        self.pidfile = self._templk(self._original_path + '.pid')
         
         args[0] = self.lockfile
         super().__init__(*args, **kwargs)
@@ -171,18 +170,16 @@ class AtomicCachingFileLock(FileLock):
         self.handle = None
         
     def acquire(self, *args, **kwargs):
-        x = super().acquire(*args, **kwargs)
-        
-        if not self._same_session():
-            self.reset_cache()
-            self._write_session()
-            
-        return x
+        super().acquire(*args, **kwargs)
         
     def _acquire(self, *args, **kwargs):
         super()._acquire(*args, **kwargs)
         
         self.handle = open(self._original_path, 'rb+')
+        
+        if not self._same_session():
+            self.reset_cache()
+            self._write_session()
         
     def _release(self, *args, **kwargs):
         super()._release(*args, **kwargs)
@@ -190,9 +187,10 @@ class AtomicCachingFileLock(FileLock):
         self.handle.close()
 
 class Interface(object):
-    _index_header_pattern = '<?IHH'  # 9  bytes
-    _index_cell_pattern   = '<?QIHQ' # 22 bytes
-    _identity_header      = b'YUN'   # 3 bytes
+    _index_header_pattern = '<?xxxIHH'  # 12 bytes
+    _index_cell_pattern   = '<?xQIHQ'   # 24 bytes
+    _yunyun_header        = b'YUNYUN00' # 8  bytes
+    _identity_header      = _yunyun_header.rjust(len(_yunyun_header)+16, b'#')
     _cache_size           = 4096
     
     def __init__(self, path, index_size = 4096, block_size = 4096):
@@ -220,7 +218,8 @@ class Interface(object):
             new = True
         else:
             hdr = open(self.path, 'rb').read(len(self._identity_header))
-            if hdr != self._identity_header:
+            cutlen = len(_yunyun_header)
+            if hdr[:-cutlen] != self._identity_header[:-cutlen]:
                 raise Exceptions.InvalidFormat(
                     'Not a YunYun file!'
                 )
@@ -447,7 +446,10 @@ class Interface(object):
             key_exists = self.keyExists(key)
             if not key_exists:
                 key_exists = self.requestFreeIndexCell()
-                self.lock.cache['keypos'].remove(key)
+                try:
+                    self.lock.cache['keypos'].remove(key)
+                except KeyError:
+                    pass
                 
                 f.seek(key_exists)
                 cell = self.readIndexCell(f.read(self._index_cellsize))
