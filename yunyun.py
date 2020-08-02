@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.2.4'
+__version__ = '0.2.5'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 import os, struct, xxhash, pickle, hashlib, io, math, threading, functools
-import zlib, time, random, tempfile
+import zlib, time, random, tempfile, itertools
 
 from filelock import FileLock
 from collections.abc import MutableMapping
@@ -118,7 +118,7 @@ class AtomicCachingFileLock(FileLock):
         self.cache['cells'] = {}
         self.cache['keypos'] = RRCCache()
         self.cache['blocks'] = CacheDict(RRCCache)
-        self.cache['index_cell_translation'] = {}
+        self.cache['indexcell_translation'] = {}
         self.cache['safe_indexes'] = set()
     
     def _cap32(self, i):
@@ -357,10 +357,7 @@ class Interface(object):
                     self.readIndexCell(f.read(self._index_cellsize))
                 ), positions)
                 self.lock.cache['cells'].update(cells)
-                
-                translations = map(lambda z: (z, x[0]), positions)
-                self.lock.cache['index_cell_translation'].update(translations)   
-                
+                self.lock.cache['indexcell_translation'][x[0]] = set(positions)
                 self.lock.cache['safe_indexes'].add(x[0])
                     
         return self.lock.cache['cells']
@@ -380,9 +377,11 @@ class Interface(object):
                 pass
                 
             try:
-                self.lock.cache['safe_indexes'].remove(
-                    self.lock.cache['index_cell_translation'][pos]
-                )
+                for k, v in self.lock.cache['indexcell_translation'].items():
+                    if pos in v:
+                        self.lock.cache['safe_indexes'].remove(k)
+                        
+                        break
             except KeyError:
                 pass
     
