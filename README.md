@@ -49,6 +49,25 @@ print(my_shelve['hello'])
 
 # Delete a key
 del my_shelve['hello']
+
+# Use an InstanceLockedShelve to perform a large atomic operation
+# No other process or thread will be able to access the shelve until this with
+# block exits.
+with yunyun.InstanceLockedShelve('mystuff.yun') as my_shelve:
+    my_shelve['hello'] = 'world'
+    del my_shelve['hello']
+    
+# Alternatively...
+my_shelve = yunyun.InstanceLockedShelve('mystuff.yun')
+my_shelve['hello'] = 'world'
+del my_shelve['hello']
+
+# Just don't forget to delete the object manually, otherwise the database will
+# stay locked forever...
+del my_shelve
+
+# Generally speaking though, it's better to just use "with" or the normal
+# Shelve object.
 ```
 
 **IMPORTANT WARNING:** Unlike the standard library shelve, there's no

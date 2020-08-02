@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.2.2'
+__version__ = '0.2.3'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -841,8 +841,13 @@ class MultiblockHandler(Interface):
                 return len(b)
 
 class Shelve(MutableMapping):
+    _locks = {}
+    
     def __init__(self, *args, **kwargs):
-        self._lock = threading.Lock()
+        if args[0] not in self._locks:
+            self._locks[args[0]] = threading.Lock()
+        self._lock = self._locks[args[0]]
+            
         self.trackkeys = True
         
         with self._lock:
@@ -972,11 +977,18 @@ class InstanceLockedShelve(Shelve):
     
     Can be used with `with`.
     """
+    _locks_i = {}
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
         self.mapping.lock.acquire()
+        
+        if args[0] not in self._locks_i:
+            self._locks_i[args[0]] = threading.Lock()
+        self._lock_i = self._locks_i[args[0]]
+        
+        self._lock_i.acquire()
         
     def __enter__(self, *args, **kwargs):
         self.mapping.lock.acquire()
@@ -986,9 +998,18 @@ class InstanceLockedShelve(Shelve):
     def __exit__(self, *args, **kwargs):
         self.mapping.lock.release(force = True)
         
+        if self._lock_i.locked():
+            self._lock_i.release()
+        
     def __del__(self, *args, **kwargs):
         try:
             self.mapping.lock.release(force = True)
+        except:
+            pass
+            
+        try:
+            if self._lock_i.locked():
+                self._lock_i.release()
         except:
             pass
 
