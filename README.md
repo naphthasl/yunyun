@@ -138,3 +138,7 @@ as it's slower than the rest, even if it's still extremely quick. It also slows
 down depending on the amount of elements, which is kind of disappointing, even
 if the slowdown would take an extremely large amount of elements to become
 noticeable. That said, it needs to be worked on, and I am working on it.
+
+Here's the same graph, tested with 16384 elements instead of 1024 elements and
+with smoothing to make the results easier to understand.
+![Performance Benchmark 3](https://raw.githubusercontent.com/naphthasl/yunyun/master/benchmark3.png)
