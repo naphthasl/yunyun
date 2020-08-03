@@ -1115,6 +1115,9 @@ if __name__ == '__main__':
     sobj = Shelve(FILENAME)
     ax.plot(*testset(sobj, 1024), label='set')
     pulverise_original()
+    with InstanceLockedShelve(FILENAME) as sobj:
+        ax.plot(*testset(sobj, 1024), label='set_keyless')
+    pulverise_original()
     sobj = Shelve(FILENAME)
     ax.plot(*testget(sobj, 1024), label='get')
     pulverise_original()
