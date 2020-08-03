@@ -10,7 +10,7 @@ License: MIT (see LICENSE for details)
 """
 
 __author__ = 'Naphtha Nepanthez'
-__version__ = '0.2.5'
+__version__ = '0.3.0'
 __license__ = 'MIT' # SEE LICENSE FILE
 __all__ = [
     'Interface',
@@ -898,30 +898,26 @@ class Shelve(MutableMapping):
         with self.mapping.lock:
             if 'skeys' not in self.mapping.lock.cache:
                 self._ikeys.seek(0)
-                self.mapping.lock.cache['skeys'] = pickle.loads(
-                    zlib.decompress(self._ikeys.read())
-                )
+                read = self._ikeys.read()
+                if len(read) == 0:
+                    self.mapping.lock.cache['skeys'] = set()
+                else:
+                    self.mapping.lock.cache['skeys'] = pickle.loads(
+                        zlib.decompress(read)
+                    )
             
-            return self.mapping.lock.cache['skeys']
+            return self.mapping.lock.cache['skeys'].copy()
             
     def _write_keys(self, kr):
         with self.mapping.lock:
-            try:
-                kro = self.mapping.lock.cache['skeys']
-            except KeyError:
-                kro = None
-                
-            if kr != kro:
+            if kr != self._get_keys():
                 fin = zlib.compress(pickle.dumps(kr))
                 
                 self._ikeys.seek(0)
                 self._ikeys.truncate(len(fin))
                 self._ikeys.write(fin)
                 
-                try:
-                    del self.mapping.lock.cache['skeys']
-                except KeyError:
-                    pass
+                self.mapping.lock.cache['skeys'] = kr
         
     def __delitem__(self, key):
         with self._lock:
@@ -932,7 +928,7 @@ class Shelve(MutableMapping):
                     if key not in kr:
                         raise Exceptions.NodeDoesNotExist(
                             '!RMNOD Key: {0}'.format(
-                                key.hex()
+                                key
                             )
                         )
                         
@@ -1057,17 +1053,79 @@ if __name__ == '__main__':
             times.append(end)
             
         return indexes, times
+        
+    def testset(x, dotimes):
+        indexes = list(range(dotimes))
+        times = []
+        
+        for _ in progressbar.progressbar(indexes):
+            key = os.urandom(8)
+            
+            start = time.perf_counter()
+            x[key] = os.urandom(8)
+            end = (time.perf_counter() - start) * 1000
+            times.append(end)
+            
+        return indexes, times
+        
+    def testget(x, dotimes):
+        indexes = list(range(dotimes))
+        times = []
+        
+        for _ in progressbar.progressbar(indexes):
+            key = os.urandom(8)
+            value = os.urandom(4096)
+            
+            x[key] = value
+            start = time.perf_counter()
+            assert x[key] == value
+            end = (time.perf_counter() - start) * 1000
+            times.append(end)
+            
+        return indexes, times
+        
+    def testin(x, dotimes):
+        indexes = list(range(dotimes))
+        times = []
+        
+        for i in progressbar.progressbar(indexes):
+            x[i] = os.urandom(4096)
+            start = time.perf_counter()
+            assert (i in x) == True
+            end = (time.perf_counter() - start) * 1000
+            times.append(end)
+            
+        return indexes, times
+    
+    def testdel(x, dotimes):
+        indexes = list(range(dotimes))
+        times = []
+        
+        for i in progressbar.progressbar(indexes):
+            start = time.perf_counter()
+            del x[i]
+            end = (time.perf_counter() - start) * 1000
+            times.append(end)
+            
+        return indexes, list(reversed(times))
     
     fig, ax = plt.subplots()
     
     pulverise_original()
     sobj = Shelve(FILENAME)
-    sobj.trackkeys = False
-    ax.plot(*test(sobj, 1024), label='keyless_cooperative')
-    
+    ax.plot(*testset(sobj, 1024), label='set')
     pulverise_original()
     sobj = Shelve(FILENAME)
-    ax.plot(*test(sobj, 1024), label='cooperative')
+    ax.plot(*testget(sobj, 1024), label='get')
+    pulverise_original()
+    sobj = Shelve(FILENAME)
+    ax.plot(*testin(sobj, 1024), label='in')
+    ax.plot(*testdel(sobj, 1024), label='del')
+    
+    """
+    sobj = Shelve(FILENAME)
+    sobj.trackkeys = False
+    ax.plot(*test(sobj, 1024), label='keyless_cooperative')
     
     pulverise_original()
     with InstanceLockedShelve(FILENAME) as sobj:
@@ -1077,6 +1135,7 @@ if __name__ == '__main__':
     with InstanceLockedShelve(FILENAME) as sobj:
         sobj.trackkeys = False
         ax.plot(*test(sobj, 1024), label='keyless_lockhogger')
+    """
     
     ax.set_xlabel('Created Indexes in Database')
     ax.set_ylabel('Time to perform a single database operation (milliseconds)')

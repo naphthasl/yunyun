@@ -90,7 +90,13 @@ my_shelve[pickle.dumps(['path', 'to', 'my', 'hello'])] = 'world'
 ```
 
 Something like that, anyway. If you've got any good ideas about this too, be
-sure to let me know.
+sure to let me know. Basically, try not to store types in yunyun databases that
+are passed by reference, like dictionaries, lists, sets, that kind of thing.
+
+Nested dictionaries can probably be replaced by my solution above, and to a
+certain extent, so can lists. Maybe sets too. You might prefer some kind of
+hacky solution to try and trigger `__setitem__` after you mutate a value
+instead, it's up to you really.
 
 ## So, what is the performance like?
 
@@ -118,3 +124,7 @@ dictionary into something similar to a hashmap), Yunyun shelves have a
 `trackkeys` property that you can change at any point. It is not recommended
 to enable/disable this several times on the same shelve though, as any elements
 created without key tracking will not be tracked even when you re-enable it.
+
+So, in short, even wih 1024 keys/elements in the database, the highest amount
+of time it took to perform a single database operation was 800 microseconds.
+That's pretty good! Really good, in fact!
