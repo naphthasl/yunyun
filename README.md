@@ -91,3 +91,30 @@ my_shelve[pickle.dumps(['path', 'to', 'my', 'hello'])] = 'world'
 
 Something like that, anyway. If you've got any good ideas about this too, be
 sure to let me know.
+
+## So, what is the performance like?
+
+Good. Good enough, anyway. In my testing, with less than 1024 elements it
+managed to outperform [dbm](https://docs.python.org/3/library/dbm.html),
+[shelve](https://docs.python.org/3/library/shelve.html) (with gdbm),
+[sqlitedict](https://github.com/RaRe-Technologies/sqlitedict) and
+[pickleDB](https://pythonhosted.org/pickleDB/). Seems to be a tad slower than
+[diskcache](https://pypi.org/project/diskcache/) though, even if my solution
+seems to be significantly simpler to both understand and implement. Seriously,
+it's dead simple. I'd even go as far as to say my library is a little simpler
+than **shelve**, and that's really saying something. I've spent ages working on
+the performance of this library, and I think it's close to being as good as it
+can possibly get without becoming too complicated. I mean, making something
+that performs this well in less than 1000 lines in a single file is pretty
+impressive, at least in my opinion. I'm proud of it, anyway.
+
+### Average arbitrary database operation latency against element count
+![Performance Benchmark 1](https://raw.githubusercontent.com/naphthasl/yunyun/master/benchmark.png)
+As you can see, looking pretty fast so far. The key tells you what each
+variation of Yunyun's performance is like - most people will probably just
+want to use the `cooperative` mode (which is the default), but if you think
+you can improve performance by disabling key tracking (essentially turning the
+dictionary into something similar to a hashmap), Yunyun shelves have a
+`trackkeys` property that you can change at any point. It is not recommended
+to enable/disable this several times on the same shelve though, as any elements
+created without key tracking will not be tracked even when you re-enable it.
