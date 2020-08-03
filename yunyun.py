@@ -1058,9 +1058,7 @@ if __name__ == '__main__':
         indexes = list(range(dotimes))
         times = []
         
-        for _ in progressbar.progressbar(indexes):
-            key = os.urandom(8)
-            
+        for key in progressbar.progressbar(indexes):
             start = time.perf_counter()
             x[key] = os.urandom(8)
             end = (time.perf_counter() - start) * 1000
@@ -1072,13 +1070,9 @@ if __name__ == '__main__':
         indexes = list(range(dotimes))
         times = []
         
-        for _ in progressbar.progressbar(indexes):
-            key = os.urandom(8)
-            value = os.urandom(4096)
-            
-            x[key] = value
+        for key in progressbar.progressbar(indexes):
             start = time.perf_counter()
-            assert x[key] == value
+            assert bool(x[key])
             end = (time.perf_counter() - start) * 1000
             times.append(end)
             
@@ -1089,7 +1083,6 @@ if __name__ == '__main__':
         times = []
         
         for i in progressbar.progressbar(indexes):
-            x[i] = os.urandom(4096)
             start = time.perf_counter()
             assert (i in x) == True
             end = (time.perf_counter() - start) * 1000
@@ -1107,23 +1100,21 @@ if __name__ == '__main__':
             end = (time.perf_counter() - start) * 1000
             times.append(end)
             
-        return indexes, list(reversed(times))
+        return list(reversed(indexes)), times
     
     fig, ax = plt.subplots()
     
+    els = 16384
+    
     pulverise_original()
     sobj = Shelve(FILENAME)
-    ax.plot(*testset(sobj, 1024), label='set')
+    ax.plot(*testset(sobj, els), label='set')
+    ax.plot(*testget(sobj, els), label='get')
+    ax.plot(*testin (sobj, els), label='in' )
+    ax.plot(*testdel(sobj, els), label='del')
     pulverise_original()
     with InstanceLockedShelve(FILENAME) as sobj:
-        ax.plot(*testset(sobj, 1024), label='set_keyless')
-    pulverise_original()
-    sobj = Shelve(FILENAME)
-    ax.plot(*testget(sobj, 1024), label='get')
-    pulverise_original()
-    sobj = Shelve(FILENAME)
-    ax.plot(*testin(sobj, 1024), label='in')
-    ax.plot(*testdel(sobj, 1024), label='del')
+        ax.plot(*testset(sobj, els), label='set_keyless')
     
     """
     sobj = Shelve(FILENAME)
