@@ -128,3 +128,13 @@ created without key tracking will not be tracked even when you re-enable it.
 So, in short, even wih 1024 keys/elements in the database, the highest amount
 of time it took to perform a single database operation was 800 microseconds.
 That's pretty good! Really good, in fact!
+
+### Latency for specific operation types against element count
+![Performance Benchmark 2](https://raw.githubusercontent.com/naphthasl/yunyun/master/benchmark2.png)
+With this graph, you can see how scalable each operation is. Deleting elements,
+getting them and checking if a key is in the shelve are all extremely fast and
+scalable operations. The only one that needs work is setting/creating values,
+as it's slower than the rest, even if it's still extremely quick. It also slows
+down depending on the amount of elements, which is kind of disappointing, even
+if the slowdown would take an extremely large amount of elements to become
+noticeable. That said, it needs to be worked on, and I am working on it.
