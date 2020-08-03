@@ -2,3 +2,4 @@ filelock==3.0.12
 matplotlib==3.1.0
 progressbar2==3.51.4
 xxhash==1.4.4
+numpy==1.19.1
